@@ -1,0 +1,8 @@
+# 编译后的二进制文件
+daily_summary
+
+# 数据目录（用户数据）
+~/daily_summary/
+
+# macOS
+.DS_Store
