@@ -52,7 +52,7 @@ func Load(configPath string) (*models.Config, error) {
 			return nil, fmt.Errorf("parse JSON config: %w", err)
 		}
 	default:
-		// 默认尝试 YAML
+	// 默认使用 YAML
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			// 如果 YAML 失败，尝试 JSON
 			if jsonErr := json.Unmarshal(data, cfg); jsonErr != nil {
@@ -61,7 +61,41 @@ func Load(configPath string) (*models.Config, error) {
 		}
 	}
 
+	// 解析路径
+	resolvePaths(cfg)
+
 	return cfg, nil
+}
+
+// resolvePaths 根据 WorkDir 解析配置中的路径
+func resolvePaths(cfg *models.Config) {
+	// 如果配置了 WorkDir，将其转换为绝对路径
+	if cfg.WorkDir != "" {
+		if absPath, err := filepath.Abs(cfg.WorkDir); err == nil {
+			cfg.WorkDir = absPath
+		}
+	}
+
+	// 辅助函数：将相对路径转换为基于 WorkDir 的绝对路径
+	resolve := func(path string) string {
+		if path == "" {
+			return path
+		}
+		// 如果是绝对路径，直接返回
+		if filepath.IsAbs(path) {
+			return path
+		}
+		// 如果没有配置 WorkDir，保持原样（或者可以使用当前目录，视需求而定）
+		if cfg.WorkDir == "" {
+			return path
+		}
+		// 拼接路径
+		return filepath.Join(cfg.WorkDir, path)
+	}
+
+	cfg.DataDir = resolve(cfg.DataDir)
+	cfg.SummaryDir = resolve(cfg.SummaryDir)
+	cfg.LogFile = resolve(cfg.LogFile)
 }
 
 // Save 保存配置到文件

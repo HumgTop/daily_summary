@@ -132,7 +132,7 @@ func runServeWithConfig(configPath string) {
 		if codexPath == "" {
 			codexPath = "codex"
 		}
-		aiClient, err = summary.NewCodexClient(codexPath)
+		aiClient, err = summary.NewCodexClient(codexPath, cfg.WorkDir)
 		if err != nil {
 			log.Fatalf("Failed to create Codex client: %v", err)
 		}
@@ -288,7 +288,7 @@ func runSummaryWithConfig(configPath string, args []string) {
 		if codexPath == "" {
 			codexPath = "codex"
 		}
-		aiClient, err = summary.NewCodexClient(codexPath)
+		aiClient, err = summary.NewCodexClient(codexPath, cfg.WorkDir)
 		if err != nil {
 			log.Fatalf("Failed to create Codex client: %v", err)
 		}

@@ -16,17 +16,17 @@ type CodexClient struct {
 }
 
 // NewCodexClient 创建 Codex 客户端
-func NewCodexClient(codexPath string) (*CodexClient, error) {
-	// 创建临时工作目录
+func NewCodexClient(codexPath, projectDir string) (*CodexClient, error) {
+	// 创建临时工作目录 for internal use if needed, but we mainly care about projectDir for execution
 	homeDir, _ := os.UserHomeDir()
-	workDir := filepath.Join(homeDir, ".daily_summary_temp")
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	tempDir := filepath.Join(homeDir, ".daily_summary_temp")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 
 	return &CodexClient{
 		codexPath: codexPath,
-		workDir:   workDir,
+		workDir:   projectDir, // Use the project directory provided
 	}, nil
 }
 
@@ -46,10 +46,12 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 
 	// 记录调用信息
 	log.Printf("调用 Codex: %s exec", codexPath)
+	log.Printf("工作目录: %s", c.workDir)
 	log.Printf("Prompt 长度: %d 字符", len(prompt))
 
 	// 调用 codex exec "{prompt}"
 	cmd := exec.Command(codexPath, "exec", prompt)
+	cmd.Dir = c.workDir // 设置命令执行目录为项目目录
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

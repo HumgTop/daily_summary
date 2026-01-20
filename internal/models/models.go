@@ -24,6 +24,7 @@ type SummaryMetadata struct {
 
 // Config 应用配置
 type Config struct {
+	WorkDir        string `yaml:"work_dir" json:"work_dir"`                 // 工作目录（项目根目录）
 	DataDir        string `yaml:"data_dir" json:"data_dir"`                 // 数据目录
 	SummaryDir     string `yaml:"summary_dir" json:"summary_dir"`           // 总结目录
 	HourlyInterval int    `yaml:"hourly_interval" json:"hourly_interval"`   // 小时间隔（默认1）

@@ -1,13 +1,18 @@
 # Daily Summary Tool 配置文件
 # 复制此文件到 ~/.config/daily_summary/config.yaml 并根据需要修改
 
+# 工作目录（项目根目录）
+# 所有其他相对路径都基于此目录
+# 使用绝对路径，确保在任何目录下执行命令都能找到正确位置
+work_dir: /Users/bytedance/go/src/humg.top/daily_summary
+
 # 数据存储目录（工作记录 JSON 文件）
-# 使用绝对路径确保在任何目录下都能找到数据
-data_dir: /Users/bytedance/go/src/humg.top/daily_summary/run/data
+# 相对于 work_dir 的路径，最终路径为 work_dir + data_dir
+data_dir: run/data
 
 # 工作总结目录（Markdown 总结文件）
-# 使用绝对路径确保在任何目录下都能找到总结
-summary_dir: /Users/bytedance/go/src/humg.top/daily_summary/run/summaries
+# 相对于 work_dir 的路径，最终路径为 work_dir + summary_dir
+summary_dir: run/summaries
 
 # 提醒间隔设置（两者选其一）
 # 方式1：使用小时级提醒（hourly_interval）
@@ -50,9 +55,9 @@ dialog_timeout: 300
 # false = 禁用，日志只输出到 stdout
 enable_logging: true
 
-# 日志文件路径（绝对路径）
-# 使用绝对路径确保在任何目录下执行命令时都能正确写入日志
-log_file: /Users/bytedance/go/src/humg.top/daily_summary/run/logs/app.log
+# 日志文件路径
+# 相对于 work_dir 的路径，最终路径为 work_dir + log_file
+log_file: run/logs/app.log
 
 # 日志文件最大大小（单位：MB）
 # 当日志文件超过此大小时，会自动轮转（重命名为 .old 并创建新文件）
