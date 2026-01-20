@@ -63,7 +63,7 @@ func (g *Generator) buildPrompt(dailyData *models.DailyData) string {
 	var builder strings.Builder
 
 	builder.WriteString(fmt.Sprintf("请为以下工作记录生成一份结构化的工作总结（日期：%s）\n\n", dailyData.Date))
-	builder.WriteString("工作记录：\n\n")
+	builder.WriteString("工作记录（每1条记录都是对前一个时间窗口工作内容的总结）：\n\n")
 
 	for _, entry := range dailyData.Entries {
 		timeStr := entry.Timestamp.Format("15:04")
