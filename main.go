@@ -276,6 +276,12 @@ func runSummary() {
 		os.Exit(1)
 	}
 
+	// 标记总结已生成
+	if err := store.MarkSummaryGenerated(targetDate); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: 标记总结状态失败: %v\n", err)
+		// 不终止程序，因为总结已经成功生成
+	}
+
 	fmt.Printf("✓ 总结已生成并保存到: ~/daily_summary/summaries/%s.md\n", targetDate.Format("2006-01-02"))
 }
 

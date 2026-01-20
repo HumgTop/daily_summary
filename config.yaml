@@ -23,7 +23,7 @@ minute_interval: 60
 # 每日总结生成时间（24小时制，格式：HH:MM）
 # "00:00" = 凌晨0点（生成前一天的总结）
 # "23:00" = 晚上11点
-summary_time: "00:00"
+summary_time: "11:00"
 
 # AI 总结生成配置
 # 可选值：codex, claude

@@ -192,14 +192,32 @@ func (s *Scheduler) buildDialogMessage(now time.Time, todayData *models.DailyDat
 	return builder.String()
 }
 
-// runDailySummaryTask 每日总结任务
+// runDailySummaryTask 每日总结任务（支持 at least once 语义）
 func (s *Scheduler) runDailySummaryTask() {
 	// 解析总结时间（格式: "HH:MM"）
 	summaryHour, summaryMin := parseSummaryTime(s.config.SummaryTime)
 
 	for {
-		// 计算下一个总结时间
 		now := time.Now()
+		yesterday := now.AddDate(0, 0, -1)
+		
+		// 检查昨天是否已生成总结
+		yesterdayData, err := s.storage.GetDailyData(yesterday)
+		if err == nil && !yesterdayData.SummaryGenerated {
+			// 昨天未生成总结，检查是否已过配置时间
+			todaySummaryTime := time.Date(now.Year(), now.Month(), now.Day(), 
+				summaryHour, summaryMin, 0, 0, now.Location())
+			
+			if now.After(todaySummaryTime) {
+				// 已过配置时间，立即生成昨天的总结
+				log.Printf("Missed scheduled time %s, generating summary immediately", 
+					todaySummaryTime.Format("15:04"))
+				s.generateSummary()
+				// 生成后继续计算下一次时间
+			}
+		}
+
+		// 计算下一个总结时间
 		nextSummary := time.Date(now.Year(), now.Month(), now.Day(), summaryHour, summaryMin, 0, 0, now.Location())
 
 		// 如果今天的时间已经过了，则等到明天
@@ -230,6 +248,12 @@ func (s *Scheduler) generateSummary() {
 	if err := s.generator.GenerateDailySummary(yesterday); err != nil {
 		log.Printf("Failed to generate summary: %v", err)
 		return
+	}
+
+	// 标记总结已生成
+	if err := s.storage.MarkSummaryGenerated(yesterday); err != nil {
+		log.Printf("Failed to mark summary as generated: %v", err)
+		// 不返回错误，因为总结已经成功生成
 	}
 
 	log.Printf("Summary generated successfully for %s", yesterday.Format("2006-01-02"))

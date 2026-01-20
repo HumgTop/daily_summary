@@ -22,4 +22,7 @@ type Storage interface {
 
 	// GetSummary 获取指定日期的总结
 	GetSummary(date time.Time) (string, error)
+
+	// MarkSummaryGenerated 标记指定日期的总结已生成
+	MarkSummaryGenerated(date time.Time) error
 }

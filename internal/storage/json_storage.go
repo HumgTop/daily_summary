@@ -167,3 +167,43 @@ func (s *JSONStorage) GetSummary(date time.Time) (string, error) {
 
 	return string(data), nil
 }
+
+// MarkSummaryGenerated 标记指定日期的总结已生成
+func (s *JSONStorage) MarkSummaryGenerated(date time.Time) error {
+	dateStr := date.Format("2006-01-02")
+	filePath := filepath.Join(s.dataDir, fmt.Sprintf("%s.json", dateStr))
+
+	// 读取现有数据
+	var dailyData models.DailyData
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 文件不存在，创建新的
+			dailyData = models.DailyData{
+				Date:             dateStr,
+				Entries:          []models.WorkEntry{},
+				SummaryGenerated: true,
+			}
+		} else {
+			return fmt.Errorf("read daily data file: %w", err)
+		}
+	} else {
+		if err := json.Unmarshal(data, &dailyData); err != nil {
+			return fmt.Errorf("unmarshal daily data: %w", err)
+		}
+		// 标记为已生成
+		dailyData.SummaryGenerated = true
+	}
+
+	// 保存回文件
+	data, err = json.MarshalIndent(dailyData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal daily data: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("write daily data file: %w", err)
+	}
+
+	return nil
+}

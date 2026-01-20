@@ -10,8 +10,9 @@ type WorkEntry struct {
 
 // DailyData 表示一天的所有工作记录
 type DailyData struct {
-	Date    string      `json:"date"`    // 格式: YYYY-MM-DD
-	Entries []WorkEntry `json:"entries"` // 工作记录列表
+	Date             string      `json:"date"`               // 格式: YYYY-MM-DD
+	Entries          []WorkEntry `json:"entries"`            // 工作记录列表
+	SummaryGenerated bool        `json:"summary_generated"`  // 是否已生成总结
 }
 
 // SummaryMetadata 总结的元数据
