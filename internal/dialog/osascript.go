@@ -23,9 +23,16 @@ func NewOSAScriptDialog(timeout time.Duration) *OSAScriptDialog {
 
 // ShowInput 显示文本输入对话框
 func (d *OSAScriptDialog) ShowInput(title, message, defaultText string) (string, bool, error) {
-	// 构建 AppleScript 命令
-	script := fmt.Sprintf(`display dialog "%s" default answer "%s" with title "%s" buttons {"取消", "确定"} default button "确定"`,
-		escapeString(message),
+	// 在消息末尾添加友好提示
+	enhancedMessage := message
+	if !strings.HasSuffix(message, ":") && !strings.HasSuffix(message, "：") {
+		enhancedMessage = message + "\n\n💡 提示：可输入任意长度的文本内容"
+	}
+
+	// 构建优化的 AppleScript 命令
+	// 使用 with icon note 添加图标，让对话框更友好
+	script := fmt.Sprintf(`display dialog "%s" default answer "%s" with title "%s" with icon note buttons {"取消", "确定"} default button "确定"`,
+		escapeString(enhancedMessage),
 		escapeString(defaultText),
 		escapeString(title),
 	)
