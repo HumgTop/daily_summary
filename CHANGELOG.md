@@ -1,5 +1,224 @@
 # 更新日志
 
+## [v1.4.0] - 2026-01-20
+
+### 重要变更
+
+#### 运行时目录重构 📁
+- **统一运行时数据目录**：所有运行时数据现在统一存储在项目的 `run/` 目录下
+  - 数据文件：`./run/data/`
+  - 总结文件：`./run/summaries/`
+  - 日志文件：`./run/logs/`
+  - 锁文件：`./run/daily_summary.lock`
+  - 信号文件：`./run/.reset_signal`
+
+#### 配置更新
+- **默认路径变更**：
+  - 旧: `~/daily_summary/data` → 新: `./run/data`
+  - 旧: `~/daily_summary/summaries` → 新: `./run/summaries`
+  - 旧: `~/daily_summary/logs` → 新: `./run/logs`
+
+### 优势
+
+**项目自包含**：
+- 所有运行时数据都在项目目录下，便于管理和备份
+- 不再在用户主目录下创建额外目录
+- 更容易迁移和部署
+
+**开发友好**：
+- 数据和代码放在一起，便于调试
+- `.gitignore` 已配置忽略 `run/` 目录，避免提交用户数据
+- 多个项目副本可以独立运行，互不干扰
+
+**清晰的目录结构**：
+```
+项目目录/
+├── run/                    # 运行时数据（被 .gitignore 忽略）
+│   ├── data/              # 工作记录
+│   ├── summaries/         # 每日总结
+│   ├── logs/              # 所有日志
+│   ├── .reset_signal      # 信号文件
+│   └── daily_summary.lock # 进程锁
+└── ~/.config/daily_summary/
+    └── config.yaml        # 配置文件
+```
+
+### 升级说明
+
+**自动升级**（推荐）：
+```bash
+# 重新安装服务
+./scripts/install.sh
+
+# 配置文件会自动使用新路径
+```
+
+**手动升级**：
+如果你自定义了配置文件，需要手动更新路径：
+```yaml
+# 旧配置
+data_dir: ~/daily_summary/data
+summary_dir: ~/daily_summary/summaries
+
+# 新配置
+data_dir: ./run/data
+summary_dir: ./run/summaries
+```
+
+**迁移已有数据**（可选）：
+```bash
+# 如果你想保留旧数据
+mkdir -p ./run
+cp -r ~/daily_summary/data ./run/
+cp -r ~/daily_summary/summaries ./run/
+
+# 清理旧目录（可选）
+rm -rf ~/daily_summary
+```
+
+### 兼容性
+
+- ⚠️ **不兼容 v1.3.0**：路径发生变化
+- ✅ **配置文件格式兼容**：只需更新路径即可
+- ✅ **数据格式兼容**：可以直接迁移旧数据
+
+### 相关文件
+
+- [config.example.yaml](config.example.yaml) - 更新默认路径
+- [launchd/com.humg.daily_summary.plist](launchd/com.humg.daily_summary.plist) - 更新日志路径
+- [scripts/install.sh](scripts/install.sh) - 更新目录创建逻辑
+- [main.go](main.go#L92-L97) - 更新日志路径
+- [internal/cli/cli.go](internal/cli/cli.go) - 更新锁文件和信号文件路径
+- [internal/scheduler/scheduler.go](internal/scheduler/scheduler.go) - 更新信号文件路径
+
+---
+
+## [v1.3.0] - 2026-01-20
+
+### 新增功能
+
+#### 智能定时器重置 🔄
+- **自动顺延提醒时间**：执行 `add` 命令后自动重置定时器
+  - 手动添加记录后，下一次提醒时间自动顺延一个完整周期
+  - 避免刚添加完记录后立即收到提醒的尴尬
+  - 提升用户体验，让工作流程更加自然流畅
+
+#### 工作原理
+- **进程间通信机制**：基于文件的轻量级信号传递
+  - 信号文件：`./run/.reset_signal`（v1.4.0 更新）
+  - add 命令创建信号文件，serve 进程监控并响应
+  - 简单、跨平台、易于调试
+- **实时响应**：1秒内检测到信号并重置计时器
+- **非阻塞设计**：使用带缓冲通道，确保系统稳定性
+
+#### 使用场景
+
+**小时级调度示例**：
+```
+10:00 - 服务启动，下一次提醒: 11:00
+10:30 - 执行 add 命令添加记录
+10:30 - 自动重置，下一次提醒: 11:30 ⏰ (顺延 1 小时)
+11:30 - 弹窗提醒
+```
+
+**分钟级调度示例**：
+```
+10:00 - 服务启动，下一次提醒: 10:15
+10:10 - 执行 add 命令添加记录
+10:10 - 自动重置，下一次提醒: 10:25 ⏰ (顺延 15 分钟)
+10:25 - 弹窗提醒
+```
+
+### 技术改进
+
+#### 调度器增强
+- **新增 resetCh 通道**：接收重置信号
+- **watchResetSignal()**：监控信号文件（每秒检查）
+- **checkAndClearResetSignal()**：原子性检测并删除信号文件
+- **runHourlyTask()**：支持接收重置信号并重新调度
+
+#### CLI 增强
+- **sendResetSignal()**：在 RunAdd 完成后发送重置信号
+- **容错设计**：信号发送失败不影响主流程
+- **日志完善**：详细记录重置过程
+
+### 测试验证
+
+#### 单元测试
+- ✅ `TestResetSignalPath` - 信号文件路径验证
+- ✅ `TestCheckAndClearResetSignal` - 信号检测和清除
+- ✅ `TestResetChannel` - 通道机制验证
+- ✅ `TestSendResetSignal` - 信号发送功能
+- ✅ `TestSendResetSignalMultipleTimes` - 多次发送测试
+
+#### 集成测试
+- 提供 `test_reset.sh` 测试脚本
+- 支持手动验证重置功能
+- 详细的日志输出验证
+
+### 故障处理
+
+**信号文件创建失败**：
+- 只记录日志，不影响 add 命令执行
+- 最坏情况：提醒时间不重置，记录仍正常保存
+
+**信号文件删除失败**：
+- 记录日志并跳过本次重置
+- 下次检查时重试
+- 避免无限循环发送信号
+
+### 技术细节
+
+**为什么使用文件信号？**
+- 简单性：无需额外依赖
+- 跨平台：所有系统都支持
+- 轻量级：适合低频信号
+- 可观察：便于调试
+
+**带缓冲通道设计**：
+```go
+resetCh: make(chan struct{}, 1)  // 容量为 1
+```
+- 避免阻塞
+- 多个信号效果相同，只需一个
+
+**1秒监控间隔**：
+- 平衡响应速度和系统开销
+- 对用户体验影响极小
+
+### 相关文件
+- [internal/scheduler/scheduler.go](internal/scheduler/scheduler.go#L270-L315) - 重置机制实现
+- [internal/cli/cli.go](internal/cli/cli.go#L119-L140) - 信号发送
+- [internal/scheduler/scheduler_test.go](internal/scheduler/scheduler_test.go) - 单元测试
+- [internal/cli/cli_test.go](internal/cli/cli_test.go) - CLI 测试
+- [test_reset.sh](test_reset.sh) - 集成测试脚本
+
+### 兼容性
+
+- ✅ **完全向后兼容** v1.2.0
+- ✅ **配置文件不变**：无需修改配置
+- ✅ **数据格式不变**：与现有记录完全兼容
+- ✅ **自动启用**：无需配置，开箱即用
+
+### 升级说明
+
+从 v1.2.0 升级到 v1.3.0：
+
+```bash
+# 1. 更新代码
+git pull
+go build -o daily_summary
+
+# 2. 重新安装服务
+./scripts/install.sh
+
+# 3. 测试新功能
+./daily_summary add "测试智能重置功能"
+# 观察日志，下一次提醒时间应该自动顺延
+```
+
+---
+
 ## [v1.2.0] - 2026-01-20
 
 ### 新增功能

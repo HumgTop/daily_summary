@@ -90,8 +90,10 @@ func runServe() {
 
 	// 设置日志
 	if cfg.EnableLogging {
-		homeDir, _ := os.UserHomeDir()
-		logFile := filepath.Join(homeDir, "daily_summary", "logs", "app.log")
+		// 使用项目目录下的 run/logs
+		logFile := filepath.Join("run", "logs", "app.log")
+		// 确保日志目录存在
+		os.MkdirAll(filepath.Dir(logFile), 0755)
 		setupLogging(logFile)
 	}
 

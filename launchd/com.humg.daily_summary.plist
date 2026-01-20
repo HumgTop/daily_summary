@@ -17,10 +17,10 @@
 	<true/>
 
 	<key>StandardOutPath</key>
-	<string>/Users/bytedance/daily_summary/logs/stdout.log</string>
+	<string>/Users/bytedance/go/src/humg.top/daily_summary/run/logs/stdout.log</string>
 
 	<key>StandardErrorPath</key>
-	<string>/Users/bytedance/daily_summary/logs/stderr.log</string>
+	<string>/Users/bytedance/go/src/humg.top/daily_summary/run/logs/stderr.log</string>
 
 	<key>WorkingDirectory</key>
 	<string>/Users/bytedance/go/src/humg.top/daily_summary</string>

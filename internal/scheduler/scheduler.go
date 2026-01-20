@@ -3,6 +3,8 @@ package scheduler
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ type Scheduler struct {
 	storage   storage.Storage
 	generator *summary.Generator
 	stopCh    chan struct{}
+	resetCh   chan struct{} // 重置计时器的信号通道
 }
 
 // NewScheduler 创建调度器
@@ -34,6 +37,7 @@ func NewScheduler(
 		storage:   storage,
 		generator: generator,
 		stopCh:    make(chan struct{}),
+		resetCh:   make(chan struct{}, 1), // 带缓冲的通道，避免阻塞
 	}
 }
 
@@ -46,6 +50,9 @@ func (s *Scheduler) Start() error {
 
 	// 启动每日总结任务
 	go s.runDailySummaryTask()
+
+	// 启动信号文件监控
+	go s.watchResetSignal()
 
 	// 等待停止信号
 	<-s.stopCh
@@ -125,6 +132,10 @@ func (s *Scheduler) runHourlyTask() {
 
 			// 正常执行
 			s.showWorkEntryDialog()
+		case <-s.resetCh:
+			// 收到重置信号，重新计算下一次触发时间
+			log.Println("Received reset signal, rescheduling next reminder")
+			continue
 		case <-s.stopCh:
 			return
 		}
@@ -265,4 +276,50 @@ func parseSummaryTime(timeStr string) (hour, min int) {
 	hour, min = 0, 0
 	fmt.Sscanf(timeStr, "%d:%d", &hour, &min)
 	return
+}
+
+// watchResetSignal 监控重置信号文件
+func (s *Scheduler) watchResetSignal() {
+	ticker := time.NewTicker(1 * time.Second) // 每秒检查一次
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if s.checkAndClearResetSignal() {
+				// 非阻塞发送重置信号
+				select {
+				case s.resetCh <- struct{}{}:
+					log.Println("Reset signal sent to hourly task")
+				default:
+					// 通道已满，说明已有待处理的重置信号
+				}
+			}
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+// checkAndClearResetSignal 检查并清除重置信号文件
+func (s *Scheduler) checkAndClearResetSignal() bool {
+	signalFile := getResetSignalPath()
+
+	// 检查文件是否存在
+	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
+		return false
+	}
+
+	// 删除信号文件
+	if err := os.Remove(signalFile); err != nil {
+		log.Printf("Failed to remove reset signal file: %v", err)
+		return false
+	}
+
+	return true
+}
+
+// getResetSignalPath 获取重置信号文件路径
+func getResetSignalPath() string {
+	return filepath.Join("run", ".reset_signal")
 }

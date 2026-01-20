@@ -5,6 +5,8 @@
 ## 功能特性
 
 - **每小时自动提醒**：每小时整点弹出原生 macOS 对话框，提示记录过去1小时的工作内容
+- **智能定时器重置** ⭐：手动添加记录后自动顺延提醒时间，避免重复提醒
+- **手动记录**：随时通过 `add` 命令快速记录工作内容，无需等待定时弹窗
 - **数据持久化**：工作记录自动保存为 JSON 文件，按日期组织
 - **智能总结**：每天 0 点自动调用 Claude Code CLI 生成前一天的工作总结
 - **后台运行**：使用 launchd 在后台持续运行，系统启动时自动启动
@@ -35,23 +37,55 @@
 
 安装完成后，程序会自动在后台运行：
 
+### 自动记录（定时弹窗）
 1. **记录工作**：每小时整点会弹出对话框，输入过去1小时的工作内容后点击"确定"
-2. **查看记录**：工作记录保存在 `~/daily_summary/data/YYYY-MM-DD.json`
-3. **查看总结**：每日总结保存在 `~/daily_summary/summaries/YYYY-MM-DD.md`
+2. **查看记录**：工作记录保存在 `./run/data/YYYY-MM-DD.json`
+3. **查看总结**：每日总结保存在 `./run/summaries/YYYY-MM-DD.md`
+
+### 手动记录（命令行）
+
+**添加工作记录**：
+```bash
+daily_summary add "完成需求文档审查"
+daily_summary add "参加技术评审会议"
+```
+
+**查看今日记录**：
+```bash
+daily_summary list
+```
+
+**智能定时器重置**：
+执行 `add` 命令后，下一次提醒时间会自动顺延一个完整周期。例如：
+```
+10:00 - 服务启动，下一次提醒: 11:00
+10:30 - 执行 add 命令添加记录
+10:30 - 自动重置，下一次提醒: 11:30 ⏰ (避免在 11:00 重复提醒)
+```
+
+**获取帮助**：
+```bash
+daily_summary help
+```
 
 ## 目录结构
 
 ```
-~/daily_summary/
-├── data/                    # 工作记录（JSON 格式）
-│   ├── 2026-01-19.json
-│   └── 2026-01-20.json
-├── summaries/               # 工作总结（Markdown 格式）
-│   └── 2026-01-19.md
-└── logs/                    # 程序日志
-    ├── app.log
-    ├── stdout.log
-    └── stderr.log
+项目目录/
+├── run/                     # 运行时数据目录
+│   ├── data/               # 工作记录（JSON 格式）
+│   │   ├── 2026-01-19.json
+│   │   └── 2026-01-20.json
+│   ├── summaries/          # 工作总结（Markdown 格式）
+│   │   └── 2026-01-19.md
+│   ├── logs/               # 程序日志
+│   │   ├── app.log
+│   │   ├── stdout.log
+│   │   └── stderr.log
+│   ├── .reset_signal       # 重置信号文件（临时）
+│   └── daily_summary.lock  # 进程锁文件
+└── ~/.config/daily_summary/
+    └── config.yaml         # 配置文件
 ```
 
 ## 配置
@@ -65,11 +99,11 @@ cp config.example.yaml ~/.config/daily_summary/config.yaml
 
 默认配置：
 ```yaml
-# 数据存储目录
-data_dir: ~/daily_summary/data
+# 数据存储目录（项目目录下的 run/data）
+data_dir: ./run/data
 
-# 工作总结目录
-summary_dir: ~/daily_summary/summaries
+# 工作总结目录（项目目录下的 run/summaries）
+summary_dir: ./run/summaries
 
 # 提醒间隔（支持小时或分钟级）
 hourly_interval: 1        # 每小时提醒一次
@@ -117,13 +151,13 @@ launchctl list | grep daily_summary
 ### 查看日志
 ```bash
 # 程序日志
-tail -f ~/daily_summary/logs/app.log
+tail -f ./run/logs/app.log
 
 # 标准输出
-tail -f ~/daily_summary/logs/stdout.log
+tail -f ./run/logs/stdout.log
 
 # 错误输出
-tail -f ~/daily_summary/logs/stderr.log
+tail -f ./run/logs/stderr.log
 ```
 
 ### 重启服务
@@ -144,13 +178,12 @@ launchctl load ~/Library/LaunchAgents/com.humg.daily_summary.plist
 ./scripts/uninstall.sh
 ```
 
-注意：卸载脚本只会移除 launchd 服务，数据文件会保留在 `~/daily_summary/` 目录中。
+注意：卸载脚本只会移除 launchd 服务，数据文件会保留在项目的 `run/` 目录中。
 
 如果要完全删除所有数据：
 ```bash
-rm -rf ~/daily_summary
+rm -rf ./run
 rm -rf ~/.config/daily_summary
-rm -rf ~/.daily_summary_temp
 ```
 
 ## Claude Code 集成
@@ -165,12 +198,12 @@ rm -rf ~/.daily_summary_temp
 
 ### 对话框没有弹出
 - 检查服务是否正在运行：`launchctl list | grep daily_summary`
-- 查看日志文件：`tail -f ~/daily_summary/logs/app.log`
+- 查看日志文件：`tail -f ./run/logs/app.log`
 - 确认下一次弹窗时间是否正确
 
 ### 总结生成失败
 - 检查 Claude Code CLI 是否正确安装
-- 查看错误日志：`tail -f ~/daily_summary/logs/stderr.log`
+- 查看错误日志：`tail -f ./run/logs/stderr.log`
 - 确认前一天是否有工作记录
 
 ### 权限问题

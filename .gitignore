@@ -2,7 +2,7 @@
 daily_summary
 
 # 数据目录（用户数据）
-~/daily_summary/
+run/
 
 # macOS
 .DS_Store

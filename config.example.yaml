@@ -2,10 +2,12 @@
 # 复制此文件到 ~/.config/daily_summary/config.yaml 并根据需要修改
 
 # 数据存储目录（工作记录 JSON 文件）
-data_dir: ~/daily_summary/data
+# 默认使用项目目录下的 run/data
+data_dir: ./run/data
 
 # 工作总结目录（Markdown 总结文件）
-summary_dir: ~/daily_summary/summaries
+# 默认使用项目目录下的 run/summaries
+summary_dir: ./run/summaries
 
 # 提醒间隔设置（两者选其一）
 # 方式1：使用小时级提醒（hourly_interval）
@@ -35,6 +37,6 @@ claude_code_path: claude-code
 dialog_timeout: 300
 
 # 是否启用日志记录
-# true = 启用，日志将写入 ~/daily_summary/logs/app.log
+# true = 启用，日志将写入 ./run/logs/app.log
 # false = 禁用，日志只输出到 stdout
 enable_logging: true

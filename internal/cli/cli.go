@@ -29,6 +29,15 @@ func RunAdd(store storage.Storage, content string) error {
 
 	log.Printf("Work entry added: %s", content)
 	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
+
+	// 发送重置信号给调度器
+	if err := sendResetSignal(); err != nil {
+		// 发送信号失败不影响主流程，只记录日志
+		log.Printf("Failed to send reset signal: %v", err)
+	} else {
+		log.Println("Reset signal sent to scheduler")
+	}
+
 	return nil
 }
 
@@ -95,8 +104,7 @@ func ReleaseLock() {
 
 // getLockFilePath 获取锁文件路径
 func getLockFilePath() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, "daily_summary", "daily_summary.lock")
+	return filepath.Join("run", "daily_summary.lock")
 }
 
 // isProcessRunning 检查进程是否在运行
@@ -114,4 +122,22 @@ func isProcessRunning(pidStr string) bool {
 
 	err = process.Signal(syscall.Signal(0))
 	return err == nil
+}
+
+// sendResetSignal 发送重置信号给调度器
+func sendResetSignal() error {
+	signalFile := filepath.Join("run", ".reset_signal")
+
+	// 确保目录存在
+	signalDir := filepath.Dir(signalFile)
+	if err := os.MkdirAll(signalDir, 0755); err != nil {
+		return fmt.Errorf("failed to create signal directory: %w", err)
+	}
+
+	// 创建信号文件（空文件即可）
+	if err := os.WriteFile(signalFile, []byte{}, 0644); err != nil {
+		return fmt.Errorf("failed to create signal file: %w", err)
+	}
+
+	return nil
 }
