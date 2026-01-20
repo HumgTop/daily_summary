@@ -3,6 +3,7 @@ package summary
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,14 +40,14 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	
 	if _, err := exec.LookPath(codexPath); err != nil {
 		// 如果 codex 不存在，使用回退总结
-		fmt.Println("Warning: codex not found, using fallback summary")
+		log.Println("Warning: codex not found, using fallback summary")
 		return c.generateFallbackSummary(), nil
 	}
 
 	// 记录调用信息
-	fmt.Printf("调用 Codex: %s exec\n", codexPath)
-	fmt.Printf("Prompt 长度: %d 字符\n", len(prompt))
-	
+	log.Printf("调用 Codex: %s exec", codexPath)
+	log.Printf("Prompt 长度: %d 字符", len(prompt))
+
 	// 调用 codex exec "{prompt}"
 	cmd := exec.Command(codexPath, "exec", prompt)
 
@@ -54,17 +55,17 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	fmt.Println("等待 Codex 响应...")
+	log.Println("等待 Codex 响应...")
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Codex 执行失败: %v\n", err)
+		log.Printf("Codex 执行失败: %v", err)
 		if stderr.Len() > 0 {
-			fmt.Printf("错误输出: %s\n", stderr.String())
+			log.Printf("错误输出: %s", stderr.String())
 		}
 		return "", fmt.Errorf("execute codex: %w, stderr: %s", err, stderr.String())
 	}
 
 	response := stdout.String()
-	fmt.Printf("✓ Codex 响应成功，长度: %d 字符\n", len(response))
+	log.Printf("✓ Codex 响应成功，长度: %d 字符", len(response))
 	
 	return response, nil
 }

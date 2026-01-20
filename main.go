@@ -284,7 +284,9 @@ func runSummary() {
 		// 不终止程序，因为总结已经成功生成
 	}
 
-	fmt.Printf("✓ 总结已生成并保存到: ~/daily_summary/summaries/%s.md\n", targetDate.Format("2006-01-02"))
+	// 构建总结文件路径
+	summaryPath := filepath.Join(cfg.SummaryDir, targetDate.Format("2006-01-02")+".md")
+	fmt.Printf("✓ 总结已生成并保存到: %s\n", summaryPath)
 }
 
 // printHelp 打印帮助信息

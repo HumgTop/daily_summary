@@ -16,7 +16,8 @@
       "Bash(~/.config/daily_summary/config.yaml <<'EOF'\ndata_dir: ~/daily_summary/data\nsummary_dir: ~/daily_summary/summaries\nminute_interval: 5\nsummary_time: \"00:00\"\nclaude_code_path: claude-code\ndialog_timeout: 300\nenable_logging: true\nEOF)",
       "Bash(launchctl unload:*)",
       "Bash(launchctl load:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(grep:*)"
     ]
   }
 }
