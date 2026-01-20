@@ -48,7 +48,7 @@ claude_code_path: claude-code
 
 # 对话框超时时间（单位：秒）
 # 用户未在指定时间内响应对话框时自动关闭
-dialog_timeout: 300
+dialog_timeout: 3600
 
 # 是否启用日志记录
 # true = 启用，日志将写入指定的日志文件

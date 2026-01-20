@@ -30,8 +30,8 @@ func (d *OSAScriptDialog) ShowInput(title, message, defaultText string) (string,
 	}
 
 	// 构建优化的 AppleScript 命令
-	// 使用 with icon note 添加图标，让对话框更友好
-	script := fmt.Sprintf(`display dialog "%s" default answer "%s" with title "%s" with icon note buttons {"取消", "确定"} default button "确定"`,
+	// 移除 with icon note，使弹窗更加简洁
+	script := fmt.Sprintf(`display dialog "%s" default answer "%s" with title "%s" buttons {"取消", "确定"} default button "确定"`,
 		escapeString(enhancedMessage),
 		escapeString(defaultText),
 		escapeString(title),
