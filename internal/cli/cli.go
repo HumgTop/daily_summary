@@ -47,8 +47,8 @@ func RunList(store storage.Storage) error {
 	}
 
 	fmt.Printf("📝 今日工作记录 (%s)：\n\n", today.Format("2006-01-02"))
-	for i, entry := range dailyData.Entries {
-		fmt.Printf("%d. %s - %s\n", i+1, entry.Timestamp.Format("15:04"), entry.Content)
+	for _, entry := range dailyData.Entries {
+		fmt.Printf("  • %s - %s\n", entry.Timestamp.Format("15:04"), entry.Content)
 	}
 	fmt.Printf("\n共 %d 条记录\n", len(dailyData.Entries))
 
