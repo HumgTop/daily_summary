@@ -1,0 +1,55 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PLIST_SRC="$PROJECT_DIR/launchd/com.humg.daily_summary.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.humg.daily_summary.plist"
+
+echo "====================================="
+echo "Daily Summary Tool - Installation"
+echo "====================================="
+echo ""
+
+# 编译程序
+echo "Building daily_summary..."
+cd "$PROJECT_DIR"
+go build -o daily_summary
+echo "✓ Build complete"
+echo ""
+
+# 创建必要的目录
+echo "Creating directories..."
+mkdir -p "$HOME/.config/daily_summary"
+mkdir -p "$HOME/daily_summary/data"
+mkdir -p "$HOME/daily_summary/summaries"
+mkdir -p "$HOME/daily_summary/logs"
+echo "✓ Directories created"
+echo ""
+
+# 复制 plist 文件
+echo "Installing launchd service..."
+cp "$PLIST_SRC" "$PLIST_DEST"
+echo "✓ Plist copied to $PLIST_DEST"
+echo ""
+
+# 卸载旧服务（如果存在）
+echo "Reloading service..."
+launchctl unload "$PLIST_DEST" 2>/dev/null || true
+launchctl load "$PLIST_DEST"
+echo "✓ Service loaded"
+echo ""
+
+echo "====================================="
+echo "Installation complete!"
+echo "====================================="
+echo ""
+echo "The service is now running in the background."
+echo "It will automatically start on system boot."
+echo ""
+echo "Useful commands:"
+echo "  - Check status: launchctl list | grep daily_summary"
+echo "  - View logs: tail -f ~/daily_summary/logs/stdout.log"
+echo "  - Uninstall: ./scripts/uninstall.sh"
+echo ""

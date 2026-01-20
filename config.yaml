@@ -1,0 +1,40 @@
+# Daily Summary Tool 配置文件
+# 复制此文件到 ~/.config/daily_summary/config.yaml 并根据需要修改
+
+# 数据存储目录（工作记录 JSON 文件）
+data_dir: ~/daily_summary/data
+
+# 工作总结目录（Markdown 总结文件）
+summary_dir: ~/daily_summary/summaries
+
+# 提醒间隔设置（两者选其一）
+# 方式1：使用小时级提醒（hourly_interval）
+# 1 = 每小时提醒一次
+# 2 = 每2小时提醒一次
+# hourly_interval: 1
+
+# 方式2：使用分钟级提醒（minute_interval）
+# 如果设置了 minute_interval，将优先使用分钟级调度
+# 15 = 每15分钟提醒一次
+# 30 = 每30分钟提醒一次
+# 注意：如果不需要分钟级提醒，请注释掉或删除此行
+minute_interval: 1
+
+# 每日总结生成时间（24小时制，格式：HH:MM）
+# "00:00" = 凌晨0点（生成前一天的总结）
+# "23:00" = 晚上11点
+summary_time: "00:00"
+
+# Claude Code CLI 可执行文件路径
+# 如果 claude-code 在 PATH 中，直接写命令名即可
+# 否则需要提供完整路径，例如：/usr/local/bin/claude-code
+claude_code_path: claude-code
+
+# 对话框超时时间（单位：秒）
+# 用户未在指定时间内响应对话框时自动关闭
+dialog_timeout: 300
+
+# 是否启用日志记录
+# true = 启用，日志将写入 ~/daily_summary/logs/app.log
+# false = 禁用，日志只输出到 stdout
+enable_logging: true
