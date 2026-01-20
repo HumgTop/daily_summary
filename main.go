@@ -43,6 +43,8 @@ func main() {
 		runAdd()
 	case "list":
 		runList()
+	case "summary":
+		runSummary()
 	case "help", "-h", "--help":
 		printHelp()
 	default:
@@ -212,6 +214,71 @@ func runList() {
 	}
 }
 
+// runSummary 生成工作总结
+func runSummary() {
+	// 解析参数
+	summaryCmd := flag.NewFlagSet("summary", flag.ExitOnError)
+	configPath := summaryCmd.String("config", getDefaultConfigPath(), "配置文件路径")
+	dateStr := summaryCmd.String("date", "", "指定日期 (格式: 2006-01-02，默认今天)")
+	summaryCmd.Parse(os.Args[2:])
+
+	// 加载配置
+	var err error
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 确定日期
+	var targetDate time.Time
+	if *dateStr == "" {
+		targetDate = time.Now()
+	} else {
+		targetDate, err = time.Parse("2006-01-02", *dateStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: 无效的日期格式，应为 YYYY-MM-DD\n")
+			os.Exit(1)
+		}
+	}
+
+	// 初始化存储
+	store := storage.NewJSONStorage(cfg.DataDir, cfg.SummaryDir)
+
+	// 创建 AI 客户端
+	var aiClient summary.AIClient
+	if cfg.AIProvider == "" || cfg.AIProvider == "codex" {
+		codexPath := cfg.CodexPath
+		if codexPath == "" {
+			codexPath = "codex"
+		}
+		aiClient, err = summary.NewCodexClient(codexPath)
+		if err != nil {
+			log.Fatalf("Failed to create Codex client: %v", err)
+		}
+	} else if cfg.AIProvider == "claude" {
+		var claudeClient *summary.ClaudeClient
+		claudeClient, err = summary.NewClaudeClient(cfg.ClaudeCodePath)
+		if err != nil {
+			log.Fatalf("Failed to create Claude client: %v", err)
+		}
+		aiClient = claudeClient
+	} else {
+		log.Fatalf("Unknown AI provider: %s", cfg.AIProvider)
+	}
+
+	// 创建生成器
+	gen := summary.NewGenerator(store, aiClient)
+
+	// 生成总结
+	fmt.Printf("正在生成 %s 的工作总结...\n", targetDate.Format("2006-01-02"))
+	if err := gen.GenerateDailySummary(targetDate); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: 生成总结失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ 总结已生成并保存到: ~/daily_summary/summaries/%s.md\n", targetDate.Format("2006-01-02"))
+}
+
 // printHelp 打印帮助信息
 func printHelp() {
 	fmt.Println(`Daily Summary Tool - 工作记录助手
@@ -220,20 +287,23 @@ func printHelp() {
   daily_summary [命令] [选项]
 
 命令:
-  serve          启动后台服务（默认）
-  add <content>  手动添加工作记录
-  list           查看今日记录
-  help           显示此帮助信息
+  serve            启动后台服务（默认）
+  add <content>    手动添加工作记录
+  list             查看今日记录
+  summary [--date] 生成工作总结
+  help             显示此帮助信息
 
 全局选项:
   --config PATH  配置文件路径 (默认: ~/.config/daily_summary/config.yaml)
 
 示例:
-  daily_summary                              # 启动后台服务
-  daily_summary serve                        # 启动后台服务
-  daily_summary add "完成需求文档审查"       # 添加工作记录
-  daily_summary list                         # 查看今日记录
-  daily_summary --config ~/my-config.yaml    # 使用自定义配置启动服务
+  daily_summary                                    # 启动后台服务
+  daily_summary serve                              # 启动后台服务
+  daily_summary add "完成需求文档审查"              # 添加工作记录
+  daily_summary list                               # 查看今日记录
+  daily_summary summary                            # 生成今日总结
+  daily_summary summary --date 2026-01-19          # 生成指定日期的总结
+  daily_summary --config ~/my-config.yaml          # 使用自定义配置启动服务
 
 说明:
   - 后台服务通过 install.sh 安装后会自动启动

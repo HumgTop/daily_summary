@@ -39,21 +39,34 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	
 	if _, err := exec.LookPath(codexPath); err != nil {
 		// 如果 codex 不存在，使用回退总结
+		fmt.Println("Warning: codex not found, using fallback summary")
 		return c.generateFallbackSummary(), nil
 	}
 
-	// 调用 codex exec --workdir {workDir} "{prompt}"
-	cmd := exec.Command(codexPath, "exec", "--workdir", c.workDir, prompt)
+	// 记录调用信息
+	fmt.Printf("调用 Codex: %s exec\n", codexPath)
+	fmt.Printf("Prompt 长度: %d 字符\n", len(prompt))
+	
+	// 调用 codex exec "{prompt}"
+	cmd := exec.Command(codexPath, "exec", prompt)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	fmt.Println("等待 Codex 响应...")
 	if err := cmd.Run(); err != nil {
+		fmt.Printf("Codex 执行失败: %v\n", err)
+		if stderr.Len() > 0 {
+			fmt.Printf("错误输出: %s\n", stderr.String())
+		}
 		return "", fmt.Errorf("execute codex: %w, stderr: %s", err, stderr.String())
 	}
 
-	return stdout.String(), nil
+	response := stdout.String()
+	fmt.Printf("✓ Codex 响应成功，长度: %d 字符\n", len(response))
+	
+	return response, nil
 }
 
 // generateFallbackSummary 生成回退总结（当 codex 不可用时）
