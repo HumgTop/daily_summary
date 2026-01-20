@@ -53,3 +53,8 @@ enable_logging: true
 # 日志文件路径（绝对路径）
 # 使用绝对路径确保在任何目录下执行命令时都能正确写入日志
 log_file: /Users/bytedance/go/src/humg.top/daily_summary/run/logs/app.log
+
+# 日志文件最大大小（单位：MB）
+# 当日志文件超过此大小时，会自动轮转（重命名为 .old 并创建新文件）
+# 设置为 0 表示不限制大小
+max_log_size_mb: 10

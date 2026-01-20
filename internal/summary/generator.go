@@ -72,7 +72,7 @@ func (g *Generator) buildPrompt(dailyData *models.DailyData) string {
 
 	builder.WriteString("\n请按照以下格式生成总结：\n")
 	builder.WriteString("## 主要完成的任务\n")
-	builder.WriteString("（列出完成的主要工作，按项目或模块分类）\n\n")
+	builder.WriteString("（列出完成的主要工作，按项目或模块分类，并估算工作实际耗时）\n\n")
 	builder.WriteString("## 关键进展\n")
 	builder.WriteString("（突出重要的进展和成果）\n\n")
 	builder.WriteString("## 遇到的问题\n")

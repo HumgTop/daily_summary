@@ -110,7 +110,7 @@ func runServeWithConfig(configPath string) {
 		}
 		// 确保日志目录存在
 		os.MkdirAll(filepath.Dir(logFile), 0755)
-		setupLogging(logFile)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
 	}
 
 	log.Println("Daily Summary Tool starting...")
@@ -203,7 +203,7 @@ func runAddWithConfig(configPath string, args []string) {
 			logFile = filepath.Join("run", "logs", "app.log")
 		}
 		os.MkdirAll(filepath.Dir(logFile), 0755)
-		setupLogging(logFile)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
 	}
 
 	// 初始化存储
@@ -230,7 +230,7 @@ func runListWithConfig(configPath string) {
 			logFile = filepath.Join("run", "logs", "app.log")
 		}
 		os.MkdirAll(filepath.Dir(logFile), 0755)
-		setupLogging(logFile)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
 	}
 
 	// 初始化存储
@@ -263,7 +263,7 @@ func runSummaryWithConfig(configPath string, args []string) {
 			logFile = filepath.Join("run", "logs", "app.log")
 		}
 		os.MkdirAll(filepath.Dir(logFile), 0755)
-		setupLogging(logFile)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
 	}
 
 	// 确定日期
@@ -363,12 +363,21 @@ func getDefaultConfigPath() string {
 }
 
 // setupLogging 设置日志输出
-func setupLogging(logFile string) {
+// maxSizeMB: 日志文件最大大小（MB），0 表示不限制
+func setupLogging(logFile string, maxSizeMB int) {
 	// 确保日志目录存在
 	logDir := filepath.Dir(logFile)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		log.Printf("Failed to create log directory: %v", err)
 		return
+	}
+
+	// 检查日志文件大小并执行轮转
+	if maxSizeMB > 0 {
+		if err := rotateLogIfNeeded(logFile, maxSizeMB); err != nil {
+			log.Printf("Failed to rotate log file: %v", err)
+			// 继续执行，不影响日志记录
+		}
 	}
 
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -377,4 +386,43 @@ func setupLogging(logFile string) {
 		return
 	}
 	log.SetOutput(f)
+}
+
+// rotateLogIfNeeded 检查日志文件大小，如果超过限制则进行轮转
+func rotateLogIfNeeded(logFile string, maxSizeMB int) error {
+	// 检查文件是否存在
+	info, err := os.Stat(logFile)
+	if os.IsNotExist(err) {
+		// 文件不存在，无需轮转
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat log file: %w", err)
+	}
+
+	// 计算文件大小（字节转 MB）
+	fileSizeMB := float64(info.Size()) / (1024 * 1024)
+	
+	// 如果文件大小未超过限制，无需轮转
+	if fileSizeMB <= float64(maxSizeMB) {
+		return nil
+	}
+
+	// 执行日志轮转：重命名为 .old
+	oldLogFile := logFile + ".old"
+	
+	// 如果 .old 文件已存在，先删除
+	if _, err := os.Stat(oldLogFile); err == nil {
+		if err := os.Remove(oldLogFile); err != nil {
+			return fmt.Errorf("remove old backup: %w", err)
+		}
+	}
+	
+	// 重命名当前日志文件为 .old
+	if err := os.Rename(logFile, oldLogFile); err != nil {
+		return fmt.Errorf("rename log file: %w", err)
+	}
+	
+	log.Printf("Log file rotated: %s (%.2f MB) -> %s", logFile, fileSizeMB, oldLogFile)
+	return nil
 }
