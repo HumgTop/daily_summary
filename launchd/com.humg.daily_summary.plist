@@ -8,8 +8,6 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>/Users/bytedance/go/src/humg.top/daily_summary/daily_summary</string>
-		<string>--config</string>
-		<string>/Users/bytedance/.config/daily_summary/config.yaml</string>
 	</array>
 
 	<key>RunAtLoad</key>

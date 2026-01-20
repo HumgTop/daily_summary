@@ -75,6 +75,7 @@ func runServe() {
 	defer cli.ReleaseLock()
 
 	// 加载配置
+	var err error
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -102,12 +103,33 @@ func runServe() {
 
 	store := storage.NewJSONStorage(cfg.DataDir, cfg.SummaryDir)
 
-	claudeClient, err := summary.NewClaudeClient(cfg.ClaudeCodePath)
-	if err != nil {
-		log.Fatalf("Failed to create Claude client: %v", err)
+	// 根据配置创建 AI 客户端
+	var aiClient summary.AIClient
+
+	// 默认使用 codex
+	if cfg.AIProvider == "" || cfg.AIProvider == "codex" {
+		codexPath := cfg.CodexPath
+		if codexPath == "" {
+			codexPath = "codex"
+		}
+		aiClient, err = summary.NewCodexClient(codexPath)
+		if err != nil {
+			log.Fatalf("Failed to create Codex client: %v", err)
+		}
+		log.Println("Using Codex for summary generation")
+	} else if cfg.AIProvider == "claude" {
+		var claudeClient *summary.ClaudeClient
+		claudeClient, err = summary.NewClaudeClient(cfg.ClaudeCodePath)
+		if err != nil {
+			log.Fatalf("Failed to create Claude client: %v", err)
+		}
+		aiClient = claudeClient
+		log.Println("Using Claude for summary generation")
+	} else {
+		log.Fatalf("Unknown AI provider: %s (supported: codex, claude)", cfg.AIProvider)
 	}
 
-	gen := summary.NewGenerator(store, claudeClient)
+	gen := summary.NewGenerator(store, aiClient)
 
 	sched := scheduler.NewScheduler(cfg, dlg, store, gen)
 
@@ -221,8 +243,8 @@ func printHelp() {
 
 // getDefaultConfigPath 获取默认配置文件路径
 func getDefaultConfigPath() string {
-	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".config", "daily_summary", "config.yaml")
+	// 使用项目目录下的 config.yaml
+	return "config.yaml"
 }
 
 // setupLogging 设置日志输出

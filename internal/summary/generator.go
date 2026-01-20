@@ -11,15 +11,15 @@ import (
 
 // Generator 总结生成器
 type Generator struct {
-	storage      storage.Storage
-	claudeClient *ClaudeClient
+	storage  storage.Storage
+	aiClient AIClient
 }
 
 // NewGenerator 创建总结生成器
-func NewGenerator(storage storage.Storage, claudeClient *ClaudeClient) *Generator {
+func NewGenerator(storage storage.Storage, aiClient AIClient) *Generator {
 	return &Generator{
-		storage:      storage,
-		claudeClient: claudeClient,
+		storage:  storage,
+		aiClient: aiClient,
 	}
 }
 
@@ -38,8 +38,8 @@ func (g *Generator) GenerateDailySummary(date time.Time) error {
 	// 构建提示词
 	prompt := g.buildPrompt(dailyData)
 
-	// 调用 Claude Code 生成总结
-	summary, err := g.claudeClient.GenerateSummary(prompt)
+	// 调用 AI 客户端生成总结
+	summary, err := g.aiClient.GenerateSummary(prompt)
 	if err != nil {
 		return fmt.Errorf("generate summary: %w", err)
 	}

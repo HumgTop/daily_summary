@@ -28,7 +28,12 @@ type Config struct {
 	HourlyInterval int    `yaml:"hourly_interval" json:"hourly_interval"`   // 小时间隔（默认1）
 	MinuteInterval int    `yaml:"minute_interval" json:"minute_interval"`   // 分钟间隔（如果设置则优先使用）
 	SummaryTime    string `yaml:"summary_time" json:"summary_time"`         // 生成总结的时间（默认"00:00"）
+	
+	// AI 总结生成配置
+	AIProvider     string `yaml:"ai_provider" json:"ai_provider"`           // AI 提供商："codex" 或 "claude"（默认 codex）
+	CodexPath      string `yaml:"codex_path" json:"codex_path"`             // Codex CLI 路径
 	ClaudeCodePath string `yaml:"claude_code_path" json:"claude_code_path"` // Claude Code CLI 路径
+	
 	DialogTimeout  int    `yaml:"dialog_timeout" json:"dialog_timeout"`     // 对话框超时（秒）
 	EnableLogging  bool   `yaml:"enable_logging" json:"enable_logging"`     // 是否启用日志
 }

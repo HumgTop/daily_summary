@@ -25,7 +25,16 @@ minute_interval: 1
 # "23:00" = 晚上11点
 summary_time: "00:00"
 
-# Claude Code CLI 可执行文件路径
+# AI 总结生成配置
+# 可选值：codex, claude
+# 默认使用 codex
+ai_provider: codex
+
+# Codex CLI 可执行文件路径
+# 如果 codex 在 PATH 中，直接写命令名即可
+codex_path: codex
+
+# Claude Code CLI 可执行文件路径（如使用 claude）
 # 如果 claude-code 在 PATH 中，直接写命令名即可
 # 否则需要提供完整路径，例如：/usr/local/bin/claude-code
 claude_code_path: claude-code
