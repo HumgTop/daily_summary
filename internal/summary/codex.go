@@ -37,7 +37,7 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	if codexPath == "" {
 		codexPath = "codex"
 	}
-	
+
 	if _, err := exec.LookPath(codexPath); err != nil {
 		// 如果 codex 不存在，使用回退总结
 		log.Println("Warning: codex not found, using fallback summary")
@@ -49,6 +49,9 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	log.Printf("工作目录: %s", c.workDir)
 	log.Printf("Prompt 长度: %d 字符", len(prompt))
 
+	// 同时在控制台输出进度（方便 CLI 用户看到）
+	fmt.Printf("调用 Codex 生成总结...\n")
+
 	// 调用 codex exec "{prompt}"
 	cmd := exec.Command(codexPath, "exec", prompt)
 	cmd.Dir = c.workDir // 设置命令执行目录为项目目录
@@ -58,6 +61,8 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 	cmd.Stderr = &stderr
 
 	log.Println("等待 Codex 响应...")
+	fmt.Println("正在等待 Codex 响应...")
+
 	if err := cmd.Run(); err != nil {
 		log.Printf("Codex 执行失败: %v", err)
 		if stderr.Len() > 0 {
@@ -68,7 +73,8 @@ func (c *CodexClient) GenerateSummary(prompt string) (string, error) {
 
 	response := stdout.String()
 	log.Printf("✓ Codex 响应成功，长度: %d 字符", len(response))
-	
+	fmt.Printf("✓ Codex 响应成功 (长度: %d 字符)\n", len(response))
+
 	return response, nil
 }
 
