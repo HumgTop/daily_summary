@@ -8,13 +8,15 @@ import (
 
 // TestSendResetSignal 测试发送重置信号
 func TestSendResetSignal(t *testing.T) {
-	signalFile := filepath.Join("run", ".reset_signal")
-
-	// 清理可能存在的旧文件
-	os.Remove(signalFile)
+	// 使用临时目录进行测试
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	os.MkdirAll(dataDir, 0755)
+	
+	signalFile := filepath.Join(tmpDir, ".reset_signal")
 
 	// 发送信号
-	if err := sendResetSignal(); err != nil {
+	if err := sendResetSignal(dataDir); err != nil {
 		t.Fatalf("Failed to send reset signal: %v", err)
 	}
 
@@ -22,21 +24,20 @@ func TestSendResetSignal(t *testing.T) {
 	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
 		t.Error("Signal file should be created")
 	}
-
-	// 清理
-	os.Remove(signalFile)
 }
 
 // TestSendResetSignalMultipleTimes 测试多次发送信号
 func TestSendResetSignalMultipleTimes(t *testing.T) {
-	signalFile := filepath.Join("run", ".reset_signal")
-
-	// 清理
-	os.Remove(signalFile)
+	// 使用临时目录进行测试
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	os.MkdirAll(dataDir, 0755)
+	
+	signalFile := filepath.Join(tmpDir, ".reset_signal")
 
 	// 连续发送多次
 	for i := 0; i < 3; i++ {
-		if err := sendResetSignal(); err != nil {
+		if err := sendResetSignal(dataDir); err != nil {
 			t.Fatalf("Failed to send reset signal (attempt %d): %v", i+1, err)
 		}
 	}
@@ -45,7 +46,4 @@ func TestSendResetSignalMultipleTimes(t *testing.T) {
 	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
 		t.Error("Signal file should exist after multiple sends")
 	}
-
-	// 清理
-	os.Remove(signalFile)
 }

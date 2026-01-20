@@ -46,6 +46,10 @@ claude_code_path: claude-code
 dialog_timeout: 300
 
 # 是否启用日志记录
-# true = 启用，日志将写入 ./run/logs/app.log
+# true = 启用，日志将写入指定的日志文件
 # false = 禁用，日志只输出到 stdout
 enable_logging: true
+
+# 日志文件路径（绝对路径）
+# 使用绝对路径确保在任何目录下执行命令时都能正确写入日志
+log_file: /Users/bytedance/go/src/humg.top/daily_summary/run/logs/app.log

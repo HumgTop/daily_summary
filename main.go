@@ -103,8 +103,11 @@ func runServeWithConfig(configPath string) {
 
 	// 设置日志
 	if cfg.EnableLogging {
-		// 使用项目目录下的 run/logs
-		logFile := filepath.Join("run", "logs", "app.log")
+		// 使用配置文件中指定的日志路径，如果未配置则使用默认相对路径
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
 		// 确保日志目录存在
 		os.MkdirAll(filepath.Dir(logFile), 0755)
 		setupLogging(logFile)
@@ -193,11 +196,21 @@ func runAddWithConfig(configPath string, args []string) {
 		log.Fatalf("Failed to create directories: %v", err)
 	}
 
+	// 设置日志
+	if cfg.EnableLogging {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		os.MkdirAll(filepath.Dir(logFile), 0755)
+		setupLogging(logFile)
+	}
+
 	// 初始化存储
 	store := storage.NewJSONStorage(cfg.DataDir, cfg.SummaryDir)
 
 	// 执行添加
-	if err := cli.RunAdd(store, content); err != nil {
+	if err := cli.RunAdd(store, content, cfg.DataDir); err != nil {
 		log.Fatalf("Failed to add entry: %v", err)
 	}
 }
@@ -208,6 +221,16 @@ func runListWithConfig(configPath string) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 设置日志
+	if cfg.EnableLogging {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		os.MkdirAll(filepath.Dir(logFile), 0755)
+		setupLogging(logFile)
 	}
 
 	// 初始化存储
@@ -231,6 +254,16 @@ func runSummaryWithConfig(configPath string, args []string) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 设置日志
+	if cfg.EnableLogging {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		os.MkdirAll(filepath.Dir(logFile), 0755)
+		setupLogging(logFile)
 	}
 
 	// 确定日期

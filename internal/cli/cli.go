@@ -15,7 +15,7 @@ import (
 )
 
 // RunAdd 添加工作记录
-func RunAdd(store storage.Storage, content string) error {
+func RunAdd(store storage.Storage, content string, dataDir string) error {
 	now := time.Now()
 
 	entry := models.WorkEntry{
@@ -31,7 +31,7 @@ func RunAdd(store storage.Storage, content string) error {
 	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
 
 	// 发送重置信号给调度器
-	if err := sendResetSignal(); err != nil {
+	if err := sendResetSignal(dataDir); err != nil {
 		// 发送信号失败不影响主流程，只记录日志
 		log.Printf("Failed to send reset signal: %v", err)
 	} else {
@@ -125,12 +125,14 @@ func isProcessRunning(pidStr string) bool {
 }
 
 // sendResetSignal 发送重置信号给调度器
-func sendResetSignal() error {
-	signalFile := filepath.Join("run", ".reset_signal")
+// dataDir: 数据目录的绝对路径
+func sendResetSignal(dataDir string) error {
+	// 使用 dataDir 的父目录（项目 run 目录）来存放信号文件
+	runDir := filepath.Dir(dataDir)
+	signalFile := filepath.Join(runDir, ".reset_signal")
 
 	// 确保目录存在
-	signalDir := filepath.Dir(signalFile)
-	if err := os.MkdirAll(signalDir, 0755); err != nil {
+	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("failed to create signal directory: %w", err)
 	}
 

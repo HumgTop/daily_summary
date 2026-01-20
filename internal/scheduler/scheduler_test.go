@@ -5,13 +5,24 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"humg.top/daily_summary/internal/models"
 )
 
 // TestResetSignalPath 测试重置信号文件路径
 func TestResetSignalPath(t *testing.T) {
-	path := getResetSignalPath()
-
-	expected := filepath.Join("run", ".reset_signal")
+	// 使用临时目录创建测试配置
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	
+	s := &Scheduler{
+		config: &models.Config{
+			DataDir: dataDir,
+		},
+	}
+	
+	path := s.getResetSignalPath()
+	expected := filepath.Join(tmpDir, ".reset_signal")
 
 	if path != expected {
 		t.Errorf("Expected path %s, got %s", expected, path)
@@ -20,13 +31,18 @@ func TestResetSignalPath(t *testing.T) {
 
 // TestCheckAndClearResetSignal 测试信号文件检测和清除
 func TestCheckAndClearResetSignal(t *testing.T) {
-	// 创建临时调度器（只需要测试方法）
-	s := &Scheduler{}
+	// 使用临时目录创建测试配置
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	os.MkdirAll(dataDir, 0755)
+	
+	s := &Scheduler{
+		config: &models.Config{
+			DataDir: dataDir,
+		},
+	}
 
-	signalFile := getResetSignalPath()
-
-	// 确保开始时文件不存在
-	os.Remove(signalFile)
+	signalFile := s.getResetSignalPath()
 
 	// 测试：文件不存在时返回 false
 	if s.checkAndClearResetSignal() {
@@ -34,8 +50,6 @@ func TestCheckAndClearResetSignal(t *testing.T) {
 	}
 
 	// 创建信号文件
-	signalDir := filepath.Dir(signalFile)
-	os.MkdirAll(signalDir, 0755)
 	if err := os.WriteFile(signalFile, []byte{}, 0644); err != nil {
 		t.Fatalf("Failed to create signal file: %v", err)
 	}

@@ -303,7 +303,7 @@ func (s *Scheduler) watchResetSignal() {
 
 // checkAndClearResetSignal 检查并清除重置信号文件
 func (s *Scheduler) checkAndClearResetSignal() bool {
-	signalFile := getResetSignalPath()
+	signalFile := s.getResetSignalPath()
 
 	// 检查文件是否存在
 	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
@@ -320,6 +320,8 @@ func (s *Scheduler) checkAndClearResetSignal() bool {
 }
 
 // getResetSignalPath 获取重置信号文件路径
-func getResetSignalPath() string {
-	return filepath.Join("run", ".reset_signal")
+func (s *Scheduler) getResetSignalPath() string {
+	// 使用 dataDir 的父目录（run 目录）
+	runDir := filepath.Dir(s.config.DataDir)
+	return filepath.Join(runDir, ".reset_signal")
 }
