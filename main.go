@@ -20,31 +20,54 @@ import (
 )
 
 func main() {
-	// 检查子命令
-	if len(os.Args) < 2 {
-		// 默认：启动服务
-		runServe()
-		return
+	// 解析全局 flag
+	globalFlags := flag.NewFlagSet("global", flag.ContinueOnError)
+	configPath := globalFlags.String("config", getDefaultConfigPath(), "配置文件路径")
+	globalFlags.SetOutput(os.Stderr)
+
+	// 查找第一个非 flag 参数作为子命令，同时解析全局 flags
+	subcommand := ""
+	subcommandIndex := -1
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		// 跳过 flag 参数
+		if strings.HasPrefix(arg, "-") {
+			// 如果是带值的 flag（如 --config path），跳过下一个参数
+			if i+1 < len(os.Args) && !strings.Contains(arg, "=") &&
+			   (arg == "--config" || arg == "-config") {
+				i++
+			}
+			continue
+		}
+		// 找到第一个非 flag 参数
+		subcommand = arg
+		subcommandIndex = i
+		break
 	}
 
-	subcommand := os.Args[1]
+	// 解析全局 flags（在子命令之前的所有参数）
+	if subcommandIndex > 0 {
+		globalFlags.Parse(os.Args[1:subcommandIndex])
+	} else {
+		globalFlags.Parse(os.Args[1:])
+	}
 
-	// 如果第一个参数是 flag（以 - 开头），当作服务模式
-	if strings.HasPrefix(subcommand, "-") {
-		runServe()
+	// 如果没有找到子命令，默认启动服务
+	if subcommand == "" {
+		runServeWithConfig(*configPath)
 		return
 	}
 
 	// 处理子命令
 	switch subcommand {
 	case "serve":
-		runServe()
+		runServeWithConfig(*configPath)
 	case "add":
-		runAdd()
+		runAddWithConfig(*configPath, os.Args[subcommandIndex+1:])
 	case "list":
-		runList()
+		runListWithConfig(*configPath)
 	case "summary":
-		runSummary()
+		runSummaryWithConfig(*configPath, os.Args[subcommandIndex+1:])
 	case "help", "-h", "--help":
 		printHelp()
 	default:
@@ -54,18 +77,8 @@ func main() {
 	}
 }
 
-// runServe 启动后台服务
-func runServe() {
-	// 解析参数
-	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
-	configPath := serveCmd.String("config", getDefaultConfigPath(), "配置文件路径")
-
-	// 如果第一个参数是 "serve"，跳过它
-	args := os.Args[1:]
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		args = os.Args[2:]
-	}
-	serveCmd.Parse(args)
+// runServeWithConfig 启动后台服务
+func runServeWithConfig(configPath string) {
 
 	// 检查并获取进程锁
 	if err := cli.CheckAndAcquireLock(); err != nil {
@@ -78,7 +91,7 @@ func runServe() {
 
 	// 加载配置
 	var err error
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -157,25 +170,20 @@ func runServe() {
 	log.Println("Goodbye!")
 }
 
-// runAdd 添加工作记录
-func runAdd() {
-	// 解析参数
-	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
-	configPath := addCmd.String("config", getDefaultConfigPath(), "配置文件路径")
-	addCmd.Parse(os.Args[2:])
-
+// runAddWithConfig 添加工作记录
+func runAddWithConfig(configPath string, args []string) {
 	// 检查工作内容参数
-	if addCmd.NArg() == 0 {
+	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: 请提供工作内容")
 		fmt.Fprintln(os.Stderr, "\n用法: daily_summary add \"工作内容\"")
 		fmt.Fprintln(os.Stderr, "示例: daily_summary add \"完成需求文档审查\"")
 		os.Exit(1)
 	}
 
-	content := addCmd.Arg(0)
+	content := args[0]
 
 	// 加载配置
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -194,15 +202,10 @@ func runAdd() {
 	}
 }
 
-// runList 查看今日记录
-func runList() {
-	// 解析参数
-	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
-	configPath := listCmd.String("config", getDefaultConfigPath(), "配置文件路径")
-	listCmd.Parse(os.Args[2:])
-
+// runListWithConfig 查看今日记录
+func runListWithConfig(configPath string) {
 	// 加载配置
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -216,17 +219,16 @@ func runList() {
 	}
 }
 
-// runSummary 生成工作总结
-func runSummary() {
+// runSummaryWithConfig 生成工作总结
+func runSummaryWithConfig(configPath string, args []string) {
 	// 解析参数
 	summaryCmd := flag.NewFlagSet("summary", flag.ExitOnError)
-	configPath := summaryCmd.String("config", getDefaultConfigPath(), "配置文件路径")
 	dateStr := summaryCmd.String("date", "", "指定日期 (格式: 2006-01-02，默认今天)")
-	summaryCmd.Parse(os.Args[2:])
+	summaryCmd.Parse(args)
 
 	// 加载配置
 	var err error
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
