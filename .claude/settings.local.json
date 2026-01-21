@@ -17,7 +17,8 @@
       "Bash(launchctl unload:*)",
       "Bash(launchctl load:*)",
       "Bash(go test:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(go run:*)"
     ]
   }
 }

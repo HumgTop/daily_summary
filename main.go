@@ -149,7 +149,7 @@ func runServeWithConfig(configPath string) {
 		log.Fatalf("Unknown AI provider: %s (supported: codex, claude)", cfg.AIProvider)
 	}
 
-	gen := summary.NewGenerator(store, aiClient)
+	gen := summary.NewGenerator(store, aiClient, dlg)
 
 	sched := scheduler.NewScheduler(cfg, dlg, store, gen)
 
@@ -303,8 +303,12 @@ func runSummaryWithConfig(configPath string, args []string) {
 		log.Fatalf("Unknown AI provider: %s", cfg.AIProvider)
 	}
 
+	// 创建对话框用于发送通知
+	dialogTimeout := time.Duration(cfg.DialogTimeout) * time.Second
+	dlg := dialog.NewOSAScriptDialog(dialogTimeout)
+
 	// 创建生成器
-	gen := summary.NewGenerator(store, aiClient)
+	gen := summary.NewGenerator(store, aiClient, dlg)
 
 	// 生成总结
 	fmt.Printf("正在生成 %s 的工作总结...\n", targetDate.Format("2006-01-02"))

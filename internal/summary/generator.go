@@ -2,6 +2,7 @@ package summary
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -9,17 +10,24 @@ import (
 	"humg.top/daily_summary/internal/storage"
 )
 
+// Notifier 通知接口
+type Notifier interface {
+	ShowNotification(title, message string) error
+}
+
 // Generator 总结生成器
 type Generator struct {
 	storage  storage.Storage
 	aiClient AIClient
+	notifier Notifier
 }
 
 // NewGenerator 创建总结生成器
-func NewGenerator(storage storage.Storage, aiClient AIClient) *Generator {
+func NewGenerator(storage storage.Storage, aiClient AIClient, notifier Notifier) *Generator {
 	return &Generator{
 		storage:  storage,
 		aiClient: aiClient,
+		notifier: notifier,
 	}
 }
 
@@ -53,6 +61,21 @@ func (g *Generator) GenerateDailySummary(date time.Time) error {
 
 	if err := g.storage.SaveSummary(date, summary, metadata); err != nil {
 		return fmt.Errorf("save summary: %w", err)
+	}
+
+	// 发送通知
+	if g.notifier != nil {
+		notificationTitle := "工作总结已生成"
+		notificationMessage := fmt.Sprintf("%s 的工作总结已完成", date.Format("2006年01月02日"))
+		log.Printf("Sending notification: %s - %s", notificationTitle, notificationMessage)
+		if err := g.notifier.ShowNotification(notificationTitle, notificationMessage); err != nil {
+			// 通知失败不影响主流程，只记录日志
+			log.Printf("Failed to send notification: %v", err)
+		} else {
+			log.Printf("Notification sent successfully")
+		}
+	} else {
+		log.Printf("Warning: notifier is nil, cannot send notification")
 	}
 
 	return nil

@@ -83,3 +83,31 @@ func parseOSAScriptOutput(output string) string {
 	}
 	return strings.TrimSpace(parts[1])
 }
+
+// ShowNotification 显示弹窗提醒（改用 dialog 而非系统通知）
+func (d *OSAScriptDialog) ShowNotification(title, message string) error {
+	// 使用 display dialog 显示弹窗，只有一个"确定"按钮
+	script := fmt.Sprintf(`display dialog "%s" with title "%s" buttons {"确定"} default button "确定" with icon note`,
+		escapeString(message),
+		escapeString(title),
+	)
+
+	// 创建带超时的上下文（30秒足够用户看到）
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 执行 osascript
+	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// 超时或其他错误
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("notification dialog timeout")
+		}
+		return fmt.Errorf("osascript notification error: %w, stderr: %s", err, stderr.String())
+	}
+
+	return nil
+}
