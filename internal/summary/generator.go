@@ -1,9 +1,12 @@
 package summary
 
 import (
+	"bytes"
 	"fmt"
 	"log"
+	"os"
 	"strings"
+	"text/template"
 	"time"
 
 	"humg.top/daily_summary/internal/models"
@@ -17,18 +20,25 @@ type Notifier interface {
 
 // Generator 总结生成器
 type Generator struct {
-	storage  storage.Storage
-	aiClient AIClient
-	notifier Notifier
+	storage      storage.Storage
+	aiClient     AIClient
+	notifier     Notifier
+	templatePath string // 提示词模板路径
 }
 
 // NewGenerator 创建总结生成器
 func NewGenerator(storage storage.Storage, aiClient AIClient, notifier Notifier) *Generator {
 	return &Generator{
-		storage:  storage,
-		aiClient: aiClient,
-		notifier: notifier,
+		storage:      storage,
+		aiClient:     aiClient,
+		notifier:     notifier,
+		templatePath: "", // 默认使用内置模板
 	}
+}
+
+// SetTemplatePath 设置自定义模板路径
+func (g *Generator) SetTemplatePath(path string) {
+	g.templatePath = path
 }
 
 // GenerateDailySummary 生成每日总结
@@ -81,8 +91,68 @@ func (g *Generator) GenerateDailySummary(date time.Time) error {
 	return nil
 }
 
+// PromptData 模板数据结构
+type PromptData struct {
+	Date       string
+	EntryCount int
+	Entries    []PromptEntry
+}
+
+// PromptEntry 单条工作记录
+type PromptEntry struct {
+	Time    string
+	Content string
+}
+
 // buildPrompt 构建发送给 Claude 的提示词
 func (g *Generator) buildPrompt(dailyData *models.DailyData) string {
+	// 准备模板数据
+	entries := make([]PromptEntry, 0, len(dailyData.Entries))
+	for _, entry := range dailyData.Entries {
+		entries = append(entries, PromptEntry{
+			Time:    entry.Timestamp.Format("15:04"),
+			Content: entry.Content,
+		})
+	}
+
+	data := PromptData{
+		Date:       dailyData.Date,
+		EntryCount: len(dailyData.Entries),
+		Entries:    entries,
+	}
+
+	// 确定模板路径
+	templatePath := g.templatePath
+	if templatePath == "" {
+		// 默认使用模板
+		templatePath = "templates/summary_prompt.md"
+	}
+
+	// 读取模板文件
+	templateContent, err := os.ReadFile(templatePath)
+	if err != nil {
+		log.Printf("Warning: failed to read template file %s: %v, using fallback", templatePath, err)
+		return g.buildFallbackPrompt(dailyData)
+	}
+
+	// 解析并执行模板
+	tmpl, err := template.New("prompt").Parse(string(templateContent))
+	if err != nil {
+		log.Printf("Warning: failed to parse template: %v, using fallback", err)
+		return g.buildFallbackPrompt(dailyData)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Printf("Warning: failed to execute template: %v, using fallback", err)
+		return g.buildFallbackPrompt(dailyData)
+	}
+
+	return buf.String()
+}
+
+// buildFallbackPrompt 降级方案：使用原有的硬编码逻辑
+func (g *Generator) buildFallbackPrompt(dailyData *models.DailyData) string {
 	var builder strings.Builder
 
 	builder.WriteString(fmt.Sprintf("请为以下工作记录生成一份结构化的工作总结（日期：%s）\n\n", dailyData.Date))
