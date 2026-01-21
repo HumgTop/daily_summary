@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"humg.top/daily_summary/internal/dialog"
@@ -21,7 +22,12 @@ type Scheduler struct {
 	storage   storage.Storage
 	generator *summary.Generator
 	stopCh    chan struct{}
-	resetCh   chan struct{} // 重置计时器的信号通道
+	resetCh   chan struct{} // 重置计时器的信号通道（hourly task）
+
+	// 心跳监控（用于检测系统睡眠/唤醒）
+	summaryResetCh chan struct{} // 总结任务重置通道
+	lastHeartbeat  time.Time     // 上次心跳时间
+	heartbeatMu    sync.Mutex    // 心跳时间锁
 }
 
 // NewScheduler 创建调度器
@@ -38,6 +44,10 @@ func NewScheduler(
 		generator: generator,
 		stopCh:    make(chan struct{}),
 		resetCh:   make(chan struct{}, 1), // 带缓冲的通道，避免阻塞
+
+		// 心跳监控初始化
+		summaryResetCh: make(chan struct{}, 1),
+		lastHeartbeat:  time.Now(),
 	}
 }
 
@@ -53,6 +63,9 @@ func (s *Scheduler) Start() error {
 
 	// 启动信号文件监控
 	go s.watchResetSignal()
+
+	// 启动心跳监控（检测系统睡眠/唤醒）
+	go s.monitorHeartbeat()
 
 	// 等待停止信号
 	<-s.stopCh
@@ -243,6 +256,12 @@ func (s *Scheduler) runDailySummaryTask() {
 		select {
 		case <-time.After(waitDuration):
 			s.generateSummary()
+
+		case <-s.summaryResetCh:
+			// 收到唤醒信号，重新计算下一次时间
+			log.Println("Summary task received wake-up signal, recalculating next time...")
+			continue
+
 		case <-s.stopCh:
 			return
 		}
@@ -324,4 +343,61 @@ func (s *Scheduler) getResetSignalPath() string {
 	// 使用 dataDir 的父目录（run 目录）
 	runDir := filepath.Dir(s.config.DataDir)
 	return filepath.Join(runDir, ".reset_signal")
+}
+
+// monitorHeartbeat 心跳监控，检测系统睡眠/唤醒
+func (s *Scheduler) monitorHeartbeat() {
+	ticker := time.NewTicker(10 * time.Second) // 每 10 秒心跳
+	defer ticker.Stop()
+
+	log.Println("Heartbeat monitor started (interval: 10s, threshold: 20s)")
+
+	for {
+		select {
+		case now := <-ticker.C:
+			s.heartbeatMu.Lock()
+			elapsed := now.Sub(s.lastHeartbeat)
+			s.lastHeartbeat = now
+			s.heartbeatMu.Unlock()
+
+			// 如果间隔超过 20 秒，判定为系统从睡眠中唤醒
+			if elapsed > 20*time.Second {
+				log.Printf("=== System wake-up detected! ===")
+				log.Printf("Last heartbeat: %s ago (threshold: 20s)", elapsed)
+				s.handleWakeUp(elapsed)
+			}
+
+		case <-s.stopCh:
+			log.Println("Heartbeat monitor stopped")
+			return
+		}
+	}
+}
+
+// handleWakeUp 处理系统唤醒事件
+func (s *Scheduler) handleWakeUp(sleepDuration time.Duration) {
+	log.Printf("Handling system wake-up (sleep duration: %s)...", sleepDuration)
+
+	// 1. 重置 hourly task
+	select {
+	case s.resetCh <- struct{}{}:
+		log.Println("✓ Hourly task reset signal sent")
+	default:
+		log.Println("⚠ Hourly task reset channel full, signal already pending")
+	}
+
+	// 2. 重置 daily summary task
+	select {
+	case s.summaryResetCh <- struct{}{}:
+		log.Println("✓ Summary task reset signal sent")
+	default:
+		log.Println("⚠ Summary task reset channel full, signal already pending")
+	}
+
+	// 3. 记录唤醒事件
+	if sleepDuration > time.Hour {
+		log.Printf("Long sleep detected (%s), timers have been reset", sleepDuration)
+	}
+
+	log.Println("=== Wake-up handling completed ===")
 }

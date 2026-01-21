@@ -89,3 +89,92 @@ func TestResetChannel(t *testing.T) {
 		t.Error("Should receive from reset channel")
 	}
 }
+
+// TestHeartbeatMonitor 测试心跳监控和唤醒检测
+func TestHeartbeatMonitor(t *testing.T) {
+	s := &Scheduler{
+		resetCh:        make(chan struct{}, 1),
+		summaryResetCh: make(chan struct{}, 1),
+		stopCh:         make(chan struct{}),
+		lastHeartbeat:  time.Now(),
+	}
+
+	// 模拟睡眠：手动设置 lastHeartbeat 为很久以前
+	s.lastHeartbeat = time.Now().Add(-30 * time.Second)
+
+	// 调用 handleWakeUp 测试唤醒处理
+	s.handleWakeUp(30 * time.Second)
+
+	// 验证重置信号已发送到 resetCh
+	select {
+	case <-s.resetCh:
+		// 成功接收 hourly task 重置信号
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Should receive reset signal for hourly task")
+	}
+
+	// 验证重置信号已发送到 summaryResetCh
+	select {
+	case <-s.summaryResetCh:
+		// 成功接收 summary task 重置信号
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Should receive reset signal for summary task")
+	}
+}
+
+// TestWakeUpHandler 测试唤醒处理逻辑
+func TestWakeUpHandler(t *testing.T) {
+	s := &Scheduler{
+		resetCh:        make(chan struct{}, 1),
+		summaryResetCh: make(chan struct{}, 1),
+		stopCh:         make(chan struct{}),
+		lastHeartbeat:  time.Now(),
+	}
+
+	// 测试短睡眠（< 1小时）
+	s.handleWakeUp(30 * time.Minute)
+
+	// 清空通道
+	<-s.resetCh
+	<-s.summaryResetCh
+
+	// 测试长睡眠（> 1小时）
+	s.handleWakeUp(2 * time.Hour)
+
+	// 验证两个通道都收到信号
+	select {
+	case <-s.resetCh:
+	default:
+		t.Error("Should send reset signal for hourly task")
+	}
+
+	select {
+	case <-s.summaryResetCh:
+	default:
+		t.Error("Should send reset signal for summary task")
+	}
+}
+
+// TestSummaryResetChannel 测试总结任务重置通道
+func TestSummaryResetChannel(t *testing.T) {
+	s := &Scheduler{
+		summaryResetCh: make(chan struct{}, 1),
+		stopCh:         make(chan struct{}),
+	}
+
+	// 测试非阻塞发送
+	select {
+	case s.summaryResetCh <- struct{}{}:
+		// 成功发送
+	default:
+		t.Error("Should be able to send to summary reset channel")
+	}
+
+	// 测试接收
+	select {
+	case <-s.summaryResetCh:
+		// 成功接收
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Should receive from summary reset channel")
+	}
+}

@@ -336,7 +336,7 @@ func printHelp() {
   daily_summary [命令] [选项]
 
 命令:
-  serve            启动后台服务（默认）
+  serve            启动后台服务（长期运行模式）
   add <content>    手动添加工作记录
   list             查看今日记录
   summary [--date] 生成工作总结
@@ -357,7 +357,8 @@ func printHelp() {
 说明:
   - 后台服务通过 install.sh 安装后会自动启动
   - 手动添加的记录会立即保存，并在下次定时弹窗中显示
-  - 如果后台服务已在运行，执行 serve 命令会提示并退出`)
+  - 如果后台服务已在运行，执行 serve 命令会提示并退出
+  - Mac 睡眠唤醒后，定时器会自动重置，确保定时任务正常运行`)
 }
 
 // getDefaultConfigPath 获取默认配置文件路径
