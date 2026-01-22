@@ -354,7 +354,11 @@ func (s *Scheduler) monitorHeartbeat() {
 
 	for {
 		select {
-		case now := <-ticker.C:
+		case <-ticker.C:
+			// 使用当前墙上时间，而不是 ticker 的时间
+			// 因为系统睡眠时 ticker 会暂停，唤醒后继续，无法检测到时间跳变
+			now := time.Now()
+
 			s.heartbeatMu.Lock()
 			elapsed := now.Sub(s.lastHeartbeat)
 			s.lastHeartbeat = now
