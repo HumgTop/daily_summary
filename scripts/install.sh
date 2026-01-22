@@ -37,6 +37,26 @@ echo ""
 # 卸载旧服务（如果存在）
 echo "Reloading service..."
 launchctl unload "$PLIST_DEST" 2>/dev/null || true
+
+# 等待旧进程完全退出（最多等待 5 秒）
+LOCK_FILE="$PROJECT_DIR/run/daily_summary.lock"
+if [ -f "$LOCK_FILE" ]; then
+    echo "Waiting for old process to exit..."
+    for i in {1..10}; do
+        if [ ! -f "$LOCK_FILE" ]; then
+            echo "✓ Old process exited"
+            break
+        fi
+        sleep 0.5
+    done
+
+    # 如果锁文件仍存在，强制删除（可能是僵死进程）
+    if [ -f "$LOCK_FILE" ]; then
+        echo "⚠ Old process did not exit cleanly, removing stale lock file"
+        rm -f "$LOCK_FILE"
+    fi
+fi
+
 launchctl load "$PLIST_DEST"
 echo "✓ Service loaded"
 echo ""

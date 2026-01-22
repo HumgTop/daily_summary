@@ -18,7 +18,13 @@
       "Bash(launchctl load:*)",
       "Bash(go test:*)",
       "Bash(grep:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(./scripts/install.sh:*)",
+      "Bash(./scripts/uninstall.sh:*)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
     ]
   }
 }

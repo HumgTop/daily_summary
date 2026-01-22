@@ -27,10 +27,22 @@ hourly_interval: 1
 # "23:00" = 晚上11点
 summary_time: "00:00"
 
+# Codex CLI 可执行文件路径
+# 注意：launchd 服务的 PATH 不包含 Homebrew 路径
+# 推荐使用绝对路径，例如：/opt/homebrew/bin/codex
+# Intel Mac: /usr/local/bin/codex
+# Apple Silicon: /opt/homebrew/bin/codex
+codex_path: codex
+
 # Claude Code CLI 可执行文件路径
 # 如果 claude-code 在 PATH 中，直接写命令名即可
 # 否则需要提供完整路径，例如：/usr/local/bin/claude-code
 claude_code_path: claude-code
+
+# AI 总结生成配置
+# 可选值：codex, claude
+# 默认使用 codex
+ai_provider: codex
 
 # 对话框超时时间（单位：秒）
 # 用户未在指定时间内响应对话框时自动关闭

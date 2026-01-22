@@ -1,5 +1,133 @@
 # 更新日志
 
+## [v1.5.1] - 2026-01-22
+
+### 重要修复 🔧
+
+#### 心跳唤醒检测失效问题
+- **问题描述**：系统从睡眠状态唤醒后，心跳监控无法检测到唤醒事件
+  - 日志中缺少 "=== System wake-up detected! ===" 记录
+  - 定时任务无法重置，导致时间错乱
+  - 只能通过延迟跳过机制被动处理，无法主动重置
+
+- **根本原因**：Go 的 `time.Ticker` 在系统睡眠时会暂停
+  - 原代码使用 `case now := <-ticker.C` 获取 ticker 的时间戳
+  - ticker 在睡眠时暂停，唤醒后继续，时间戳不反映墙上时钟跳变
+  - 从 ticker 角度看，两次 tick 之间只有正常的 10 秒间隔
+  - 无法超过 20 秒阈值，导致唤醒检测失效
+
+- **修复方案**：使用 `time.Now()` 获取墙上时钟时间
+  - 改为 `case <-ticker.C` 只接收信号，不使用 ticker 的时间
+  - 手动调用 `now := time.Now()` 获取当前墙上时钟
+  - 墙上时钟能正确反映睡眠期间经过的真实时间
+  - 现在可以正确检测到 12+ 小时的睡眠并触发重置
+
+### 技术细节
+
+**时间机制对比**：
+
+| 方法 | 时间来源 | 睡眠时行为 | 唤醒后时间跳变 |
+|------|---------|-----------|--------------|
+| `case now := <-ticker.C` (旧) | Ticker 时间戳 | 暂停 | ❌ 不反映 |
+| `time.Now()` (新) | 墙上时钟 | 继续 | ✅ 正确反映 |
+
+**修复前的时间线**：
+```
+21:50:00 - 最后一次心跳
+[系统睡眠 12+ 小时]
+11:12:00 - 唤醒后第一次 tick
+11:12:10 - 下一次 tick
+elapsed = 11:12:10 - 11:12:00 = 10s ✗ 小于 20s 阈值
+```
+
+**修复后的时间线**：
+```
+21:50:00 - 最后一次心跳 (lastHeartbeat)
+[系统睡眠 12+ 小时]
+11:12:00 - 唤醒后获取 time.Now()
+elapsed = 11:12:00 - 21:50:00 = 12h22m ✓ 触发唤醒检测！
+```
+
+### 相关文件
+
+- [internal/scheduler/scheduler.go:357-360](internal/scheduler/scheduler.go#L357-L360) - 修复心跳时间获取逻辑
+- [internal/scheduler/heartbeat_test.go](internal/scheduler/heartbeat_test.go) - 新增测试验证修复
+- [docs/BUGFIX_HEARTBEAT_WAKEUP.md](docs/BUGFIX_HEARTBEAT_WAKEUP.md) - 详细技术分析文档
+
+### 测试验证
+
+```bash
+# 运行心跳测试
+go test -v ./internal/scheduler/ -run TestHeartbeat
+
+# 真实睡眠测试
+# 1. 重新构建并安装
+go build -o daily_summary && ./scripts/install.sh
+
+# 2. 让电脑进入睡眠 10+ 分钟
+# 3. 唤醒后查看日志
+tail -50 run/logs/app.log | grep "wake-up"
+```
+
+### 预期日志输出
+
+修复后唤醒应该看到：
+```
+2026/01/22 11:12:xx === System wake-up detected! ===
+2026/01/22 11:12:xx Last heartbeat: 12h22m ago (threshold: 20s)
+2026/01/22 11:12:xx Handling system wake-up (sleep duration: 12h22m)...
+2026/01/22 11:12:xx ✓ Hourly task reset signal sent
+2026/01/22 11:12:xx ✓ Summary task reset signal sent
+2026/01/22 11:12:xx === Wake-up handling completed ===
+```
+
+### 升级说明
+
+从 v1.5.0 升级到 v1.5.1：
+
+```bash
+# 1. 更新代码
+git pull
+go build -o daily_summary
+
+# 2. 重启服务
+./scripts/uninstall.sh
+./scripts/install.sh
+
+# 3. 验证修复（可选）
+# 让电脑睡眠后唤醒，检查日志确认唤醒检测正常工作
+```
+
+### 兼容性
+
+- ✅ **完全向后兼容** v1.5.0
+- ✅ **无需修改配置**
+- ✅ **无需迁移数据**
+- ✅ **运行时行为改进**：唤醒检测更可靠
+
+### 最佳实践参考
+
+这次修复揭示了一个重要的 Go 时间处理原则：
+
+**检测时间跳变时，应该使用墙上时钟而非 Timer/Ticker：**
+
+```go
+// ❌ 错误：无法检测睡眠导致的时间跳变
+case now := <-ticker.C:
+    elapsed := now.Sub(lastTime)
+
+// ✅ 正确：使用墙上时钟检测真实时间变化
+case <-ticker.C:
+    now := time.Now()
+    elapsed := now.Sub(lastTime)
+```
+
+相关资源：
+- Go time package: https://pkg.go.dev/time
+- Go Blog - Timers: https://go.dev/blog/timers
+
+---
+
 ## [v1.5.0] - 2026-01-21
 
 ### 重要变更
