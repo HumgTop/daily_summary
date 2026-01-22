@@ -79,22 +79,21 @@ func main() {
 
 // runServeWithConfig 启动后台服务
 func runServeWithConfig(configPath string) {
-
-	// 检查并获取进程锁
-	if err := cli.CheckAndAcquireLock(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 确保退出时释放锁
-	defer cli.ReleaseLock()
-
-	// 加载配置
+	// 先加载配置以获取 workDir
 	var err error
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// 检查并获取进程锁（使用配置的 workDir）
+	if err := cli.CheckAndAcquireLock(cfg.WorkDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 确保退出时释放锁
+	defer cli.ReleaseLock(cfg.WorkDir)
 
 	// 确保目录存在
 	if err := config.EnsureDirectories(cfg); err != nil {

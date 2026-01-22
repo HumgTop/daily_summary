@@ -20,7 +20,10 @@
       "Bash(grep:*)",
       "Bash(go run:*)",
       "Bash(./scripts/install.sh:*)",
-      "Bash(./scripts/uninstall.sh:*)"
+      "Bash(./scripts/uninstall.sh:*)",
+      "Bash(kill:*)",
+      "Bash(pgrep:*)",
+      "Bash(pkill:*)"
     ],
     "additionalDirectories": [
       "/tmp",

@@ -65,8 +65,9 @@ func RunList(store storage.Storage) error {
 }
 
 // CheckAndAcquireLock 检查并获取进程锁
-func CheckAndAcquireLock() error {
-	lockFile := getLockFilePath()
+// workDir: 工作目录（项目根目录），用于确定锁文件位置
+func CheckAndAcquireLock(workDir string) error {
+	lockFile := getLockFilePath(workDir)
 
 	// 读取现有锁文件
 	if data, err := os.ReadFile(lockFile); err == nil {
@@ -74,10 +75,11 @@ func CheckAndAcquireLock() error {
 
 		// 检查进程是否还在运行
 		if isProcessRunning(oldPID) {
-			return fmt.Errorf("服务已在运行 (PID: %s)\n\n提示：\n  - 后台服务已启动，无需手动运行 serve 命令\n  - 如需查看日志: tail -f ~/daily_summary/logs/app.log\n  - 如需重启服务: ./scripts/install.sh\n  - 如需停止服务: ./scripts/uninstall.sh", oldPID)
+			return fmt.Errorf("服务已在运行 (PID: %s)\n\n提示：\n  - 后台服务已启动，无需手动运行 serve 命令\n  - 如需查看日志: tail -f %s/run/logs/app.log\n  - 如需重启服务: ./scripts/install.sh\n  - 如需停止服务: launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist", oldPID, workDir)
 		}
 
 		// 进程已结束，删除旧锁文件
+		log.Printf("Cleaning up stale lock file (PID: %s)", oldPID)
 		os.Remove(lockFile)
 	}
 
@@ -93,18 +95,37 @@ func CheckAndAcquireLock() error {
 		return fmt.Errorf("failed to create lock file: %w", err)
 	}
 
+	log.Printf("Process lock acquired (PID: %s, lock file: %s)", pid, lockFile)
 	return nil
 }
 
 // ReleaseLock 释放进程锁
-func ReleaseLock() {
-	lockFile := getLockFilePath()
+func ReleaseLock(workDir string) {
+	lockFile := getLockFilePath(workDir)
 	os.Remove(lockFile)
+	log.Printf("Process lock released: %s", lockFile)
 }
 
-// getLockFilePath 获取锁文件路径
-func getLockFilePath() string {
-	return filepath.Join("run", "daily_summary.lock")
+// getLockFilePath 获取锁文件路径（基于 workDir 的 run/ 子目录）
+// workDir: 工作目录（项目根目录），如果为空则使用当前目录
+func getLockFilePath(workDir string) string {
+	if workDir == "" {
+		var err error
+		workDir, err = os.Getwd()
+		if err != nil {
+			// fallback 到临时目录
+			log.Printf("Warning: failed to get working directory: %v, using temp dir", err)
+			return filepath.Join(os.TempDir(), "daily_summary.lock")
+		}
+	}
+
+	lockDir := filepath.Join(workDir, "run")
+	if err := os.MkdirAll(lockDir, 0755); err != nil {
+		log.Printf("Warning: failed to create lock directory: %v, using temp dir", err)
+		return filepath.Join(os.TempDir(), "daily_summary.lock")
+	}
+
+	return filepath.Join(lockDir, "daily_summary.lock")
 }
 
 // isProcessRunning 检查进程是否在运行
