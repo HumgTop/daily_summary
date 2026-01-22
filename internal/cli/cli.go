@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"humg.top/daily_summary/internal/dialog"
 	"humg.top/daily_summary/internal/models"
 	"humg.top/daily_summary/internal/storage"
 )
@@ -62,6 +63,77 @@ func RunList(store storage.Storage) error {
 	fmt.Printf("\n共 %d 条记录\n", len(dailyData.Entries))
 
 	return nil
+}
+
+// RunPopup 显示对话框让用户输入工作记录
+func RunPopup(store storage.Storage, dlg dialog.Dialog, dataDir string) error {
+	now := time.Now()
+
+	// 获取今日所有记录
+	todayData, err := store.GetDailyData(now)
+	if err != nil {
+		return fmt.Errorf("failed to get today's data: %w", err)
+	}
+
+	// 构建对话框消息
+	message := buildDialogMessage(now, todayData)
+
+	// 显示对话框
+	content, ok, err := dlg.ShowInput("工作记录", message, "")
+	if err != nil {
+		return fmt.Errorf("failed to show dialog: %w", err)
+	}
+
+	if !ok || content == "" {
+		fmt.Println("已取消或未输入内容")
+		return nil
+	}
+
+	// 保存工作记录
+	entry := models.WorkEntry{
+		Timestamp: now,
+		Content:   content,
+	}
+
+	if err := store.SaveEntry(entry); err != nil {
+		return fmt.Errorf("failed to save entry: %w", err)
+	}
+
+	log.Printf("Work entry added via popup: %s", content)
+	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
+
+	// 发送重置信号给调度器
+	if err := sendResetSignal(dataDir); err != nil {
+		// 发送信号失败不影响主流程，只记录日志
+		log.Printf("Failed to send reset signal: %v", err)
+	} else {
+		log.Println("Reset signal sent to scheduler")
+	}
+
+	return nil
+}
+
+// buildDialogMessage 构建弹窗消息
+func buildDialogMessage(now time.Time, todayData *models.DailyData) string {
+	currentTime := now.Format("15:04")
+
+	if len(todayData.Entries) == 0 {
+		return fmt.Sprintf("📝 当前时间: %s\n\n═════════════════════\n\n今日暂无记录\n\n═════════════════════\n\n请输入当前工作内容:", currentTime)
+	}
+
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("📝 当前时间: %s\n\n", currentTime))
+	builder.WriteString("═════════════════════\n\n")
+	builder.WriteString("今日已记录：\n\n")
+
+	for _, entry := range todayData.Entries {
+		entryTime := entry.Timestamp.Format("15:04")
+		builder.WriteString(fmt.Sprintf("  ▸ %s    %s\n", entryTime, entry.Content))
+	}
+
+	builder.WriteString("\n═════════════════════\n\n")
+	builder.WriteString("请输入当前工作内容:")
+	return builder.String()
 }
 
 // CheckAndAcquireLock 检查并获取进程锁

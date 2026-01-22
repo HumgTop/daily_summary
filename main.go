@@ -64,6 +64,8 @@ func main() {
 		runServeWithConfig(*configPath)
 	case "add":
 		runAddWithConfig(*configPath, os.Args[subcommandIndex+1:])
+	case "popup":
+		runPopupWithConfig(*configPath)
 	case "list":
 		runListWithConfig(*configPath)
 	case "summary":
@@ -224,6 +226,42 @@ func runAddWithConfig(configPath string, args []string) {
 	}
 }
 
+// runPopupWithConfig 显示对话框让用户输入工作记录
+func runPopupWithConfig(configPath string) {
+	// 加载配置
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 确保目录存在
+	if err := config.EnsureDirectories(cfg); err != nil {
+		log.Fatalf("Failed to create directories: %v", err)
+	}
+
+	// 设置日志
+	if cfg.EnableLogging {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		os.MkdirAll(filepath.Dir(logFile), 0755)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
+	}
+
+	// 初始化存储
+	store := storage.NewJSONStorage(cfg.DataDir, cfg.SummaryDir)
+
+	// 初始化对话框
+	dialogTimeout := time.Duration(cfg.DialogTimeout) * time.Second
+	dlg := dialog.NewOSAScriptDialog(dialogTimeout)
+
+	// 执行弹窗录入
+	if err := cli.RunPopup(store, dlg, cfg.DataDir); err != nil {
+		log.Fatalf("Failed to popup entry: %v", err)
+	}
+}
+
 // runListWithConfig 查看今日记录
 func runListWithConfig(configPath string) {
 	// 加载配置
@@ -356,6 +394,7 @@ func printHelp() {
 命令:
   serve            启动后台服务（长期运行模式）
   add <content>    手动添加工作记录
+  popup            弹窗输入工作记录（与定时弹窗相同）
   list             查看今日记录
   summary [--date] 生成工作总结
   help             显示此帮助信息
@@ -367,6 +406,7 @@ func printHelp() {
   daily_summary                                    # 启动后台服务
   daily_summary serve                              # 启动后台服务
   daily_summary add "完成需求文档审查"              # 添加工作记录
+  daily_summary popup                              # 弹窗输入工作记录
   daily_summary list                               # 查看今日记录
   daily_summary summary                            # 生成今日总结
   daily_summary summary --date 2026-01-19          # 生成指定日期的总结
@@ -374,6 +414,7 @@ func printHelp() {
 
 说明:
   - 后台服务通过 install.sh 安装后会自动启动
+  - add 命令直接在命令行添加记录，popup 命令弹窗输入
   - 手动添加的记录会立即保存，并在下次定时弹窗中显示
   - 如果后台服务已在运行，执行 serve 命令会提示并退出
   - Mac 睡眠唤醒后，定时器会自动重置，确保定时任务正常运行`)

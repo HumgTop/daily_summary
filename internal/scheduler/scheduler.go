@@ -200,19 +200,21 @@ func (s *Scheduler) buildDialogMessage(now time.Time, todayData *models.DailyDat
 	currentTime := now.Format("15:04")
 
 	if len(todayData.Entries) == 0 {
-		return fmt.Sprintf("📝 工作记录 (当前时间: %s)\n\n今日暂无记录\n\n请输入当前工作内容:", currentTime)
+		return fmt.Sprintf("📝 当前时间: %s\n\n═════════════════════\n\n今日暂无记录\n\n═════════════════════\n\n请输入当前工作内容:", currentTime)
 	}
 
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("📝 工作记录 (当前时间: %s)\n\n", currentTime))
-	builder.WriteString("今日已记录：\n")
+	builder.WriteString(fmt.Sprintf("📝 当前时间: %s\n\n", currentTime))
+	builder.WriteString("═════════════════════\n\n")
+	builder.WriteString("今日已记录：\n\n")
 
 	for _, entry := range todayData.Entries {
 		entryTime := entry.Timestamp.Format("15:04")
-		builder.WriteString(fmt.Sprintf("  %s - %s\n", entryTime, entry.Content))
+		builder.WriteString(fmt.Sprintf("  ▸ %s    %s\n", entryTime, entry.Content))
 	}
 
-	builder.WriteString("\n请输入当前工作内容:")
+	builder.WriteString("\n═════════════════════\n\n")
+	builder.WriteString("请输入当前工作内容:")
 	return builder.String()
 }
 
