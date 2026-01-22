@@ -33,7 +33,7 @@ minute_interval: 45
 summary_time: "11:00"
 
 # AI 总结生成配置
-# 可选值：codex, claude
+# 可选值：codex, claude, coco
 # 默认使用 codex
 ai_provider: codex
 
@@ -46,6 +46,11 @@ codex_path: /opt/homebrew/bin/codex
 # 如果 claude-code 在 PATH 中，直接写命令名即可
 # 否则需要提供完整路径，例如：/usr/local/bin/claude-code
 claude_code_path: claude-code
+
+# Coco CLI 可执行文件路径（如使用 coco）
+# launchd 服务的 PATH 不包含用户自定义路径，需要使用绝对路径
+# 使用 which coco 命令可以查看实际路径
+coco_path: /Users/bytedance/.local/bin/coco
 
 # 对话框超时时间（单位：秒）
 # 用户未在指定时间内响应对话框时自动关闭

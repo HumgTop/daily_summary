@@ -39,8 +39,13 @@ codex_path: codex
 # 否则需要提供完整路径，例如：/usr/local/bin/claude-code
 claude_code_path: claude-code
 
+# Coco CLI 可执行文件路径
+# 如果 coco 在 PATH 中，直接写命令名即可
+# 否则需要提供完整路径，例如：/usr/local/bin/coco
+coco_path: coco
+
 # AI 总结生成配置
-# 可选值：codex, claude
+# 可选值：codex, claude, coco
 # 默认使用 codex
 ai_provider: codex
 

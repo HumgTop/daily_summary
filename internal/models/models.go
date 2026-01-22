@@ -32,9 +32,10 @@ type Config struct {
 	SummaryTime    string `yaml:"summary_time" json:"summary_time"`         // 生成总结的时间（默认"00:00"）
 	
 	// AI 总结生成配置
-	AIProvider     string `yaml:"ai_provider" json:"ai_provider"`           // AI 提供商："codex" 或 "claude"（默认 codex）
+	AIProvider     string `yaml:"ai_provider" json:"ai_provider"`           // AI 提供商："codex"、"claude" 或 "coco"（默认 codex）
 	CodexPath      string `yaml:"codex_path" json:"codex_path"`             // Codex CLI 路径
 	ClaudeCodePath string `yaml:"claude_code_path" json:"claude_code_path"` // Claude Code CLI 路径
+	CocoPath       string `yaml:"coco_path" json:"coco_path"`               // Coco CLI 路径
 	
 	DialogTimeout  int    `yaml:"dialog_timeout" json:"dialog_timeout"`     // 对话框超时（秒）
 	EnableLogging  bool   `yaml:"enable_logging" json:"enable_logging"`     // 是否启用日志

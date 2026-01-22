@@ -144,8 +144,18 @@ func runServeWithConfig(configPath string) {
 		}
 		aiClient = claudeClient
 		log.Println("Using Claude for summary generation")
+	} else if cfg.AIProvider == "coco" {
+		cocoPath := cfg.CocoPath
+		if cocoPath == "" {
+			cocoPath = "coco"
+		}
+		aiClient, err = summary.NewCocoClient(cocoPath, cfg.WorkDir)
+		if err != nil {
+			log.Fatalf("Failed to create Coco client: %v", err)
+		}
+		log.Println("Using Coco for summary generation")
 	} else {
-		log.Fatalf("Unknown AI provider: %s (supported: codex, claude)", cfg.AIProvider)
+		log.Fatalf("Unknown AI provider: %s (supported: codex, claude, coco)", cfg.AIProvider)
 	}
 
 	gen := summary.NewGenerator(store, aiClient, dlg)
@@ -298,8 +308,17 @@ func runSummaryWithConfig(configPath string, args []string) {
 			log.Fatalf("Failed to create Claude client: %v", err)
 		}
 		aiClient = claudeClient
+	} else if cfg.AIProvider == "coco" {
+		cocoPath := cfg.CocoPath
+		if cocoPath == "" {
+			cocoPath = "coco"
+		}
+		aiClient, err = summary.NewCocoClient(cocoPath, cfg.WorkDir)
+		if err != nil {
+			log.Fatalf("Failed to create Coco client: %v", err)
+		}
 	} else {
-		log.Fatalf("Unknown AI provider: %s", cfg.AIProvider)
+		log.Fatalf("Unknown AI provider: %s (supported: codex, claude, coco)", cfg.AIProvider)
 	}
 
 	// 创建对话框用于发送通知
