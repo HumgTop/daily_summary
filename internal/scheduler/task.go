@@ -15,8 +15,9 @@ type Task interface {
 	// ShouldRun 判断是否应该执行（基于当前时间和任务配置）
 	// 返回值：
 	//   - shouldRun: 是否应该执行任务
-	//   - newConfig: 如果需要更新配置（如延迟检测重新计算 NextRun），返回新的配置；否则返回 nil
-	ShouldRun(now time.Time, config *TaskConfig) (shouldRun bool, newConfig *TaskConfig)
+	//   - updateFunc: 如果需要更新配置（如延迟检测重新计算 NextRun），返回更新函数；否则返回 nil
+	//     该函数将在持有锁的情况下对最新配置进行修改。
+	ShouldRun(now time.Time, config *TaskConfig) (shouldRun bool, updateFunc func(latest *TaskConfig))
 
 	// Execute 执行任务
 	Execute() error

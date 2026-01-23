@@ -88,8 +88,16 @@ func (s *Scheduler) InitializeTasksFromConfig(
 func (s *Scheduler) upsertTask(task *TaskConfig) error {
 	existing := s.registry.GetTask(task.ID)
 	if existing != nil {
-		// 任务已存在，更新配置
-		return s.registry.UpdateTask(task)
+		// 任务已存在，使用 PatchTask 增量更新静态配置，保留运行时状态（NextRun, LastRun, Data 等）
+		return s.registry.PatchTask(task.ID, func(latest *TaskConfig) {
+			latest.Name = task.Name
+			latest.Type = task.Type
+			latest.Enabled = task.Enabled
+			latest.IntervalMinutes = task.IntervalMinutes
+			latest.Time = task.Time
+			// 注意：不更新 NextRun, LastRun, LastSuccess, LastError, Data
+			// 从而在重启后保留任务的执行进度和状态
+		})
 	}
 	// 任务不存在，添加
 	return s.registry.AddTask(task)

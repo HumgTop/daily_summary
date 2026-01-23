@@ -162,15 +162,19 @@ func (s *Scheduler) checkAndRunTasks() {
 		}
 
 		// 第二段判断：任务的细粒度业务逻辑检查
-		shouldRun, newConfig := task.ShouldRun(now, config)
+		shouldRun, updateFunc := task.ShouldRun(now, config)
 
-		// 如果 ShouldRun 返回了新配置（如延迟检测重新计算 NextRun），更新配置
-		// UpdateTask 会自动保存到文件，确保数据一致性
-		if newConfig != nil {
-			config = newConfig
-			if err := s.registry.UpdateTask(config); err != nil {
+		// 如果 ShouldRun 返回了更新函数（如延迟检测重新计算 NextRun），使用 PatchTask 增量更新
+		if updateFunc != nil {
+			err := s.registry.PatchTask(config.ID, updateFunc)
+			if err != nil {
 				log.Printf("Failed to update task config: %v", err)
 			}
+
+			// 注意：这里我们不更新局部的 config 变量，因为：
+			// 1. 如果 shouldRun=false，循环会 continue，config 不再被使用
+			// 2. 如果 shouldRun=true，虽然 config 是旧的，但 OnExecuted 会再次更新状态
+			// 这是安全的，因为 updateFunc 已经更新了持久化存储
 		}
 
 		if !shouldRun {
@@ -209,8 +213,16 @@ func (s *Scheduler) checkAndRunTasks() {
 		// 回调处理（更新配置）
 		task.OnExecuted(now, config, err)
 
-		// 保存更新后的配置（UpdateTask 会自动保存到文件）
-		if err := s.registry.UpdateTask(config); err != nil {
+		// 使用 PatchTask 增量更新任务状态，避免覆盖并发修改的配置（如 IntervalMinutes）
+		err = s.registry.PatchTask(config.ID, func(latest *TaskConfig) {
+			latest.LastRun = config.LastRun
+			latest.LastSuccess = config.LastSuccess
+			latest.LastError = config.LastError
+			latest.NextRun = config.NextRun
+			latest.Data = config.Data
+		})
+
+		if err != nil {
 			log.Printf("Failed to update task config: %v", err)
 		}
 	}

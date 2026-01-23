@@ -257,10 +257,11 @@ func updateTaskSchedule(dataDir string, addTime time.Time) error {
 	}
 
 	oldNextRun := config.NextRun
-	config.NextRun = newNextRun
 
-	// 更新任务配置
-	if err := registry.UpdateTask(config); err != nil {
+	// 使用 PatchTask 增量更新，避免覆盖后台调度器可能同时更新的状态（如 LastRun）
+	if err := registry.PatchTask("work-reminder", func(latest *scheduler.TaskConfig) {
+		latest.NextRun = newNextRun
+	}); err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 

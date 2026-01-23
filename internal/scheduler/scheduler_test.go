@@ -76,8 +76,9 @@ func TestRegistryOperations(t *testing.T) {
 	}
 
 	// 测试更新任务
-	retrieved.Enabled = false
-	if err := registry.UpdateTask(retrieved); err != nil {
+	if err := registry.PatchTask(retrieved.ID, func(task *TaskConfig) {
+		task.Enabled = false
+	}); err != nil {
 		t.Fatalf("Failed to update task: %v", err)
 	}
 
@@ -225,7 +226,7 @@ func TestCalculateNextSummaryTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			next := calculateNextSummaryTime(tt.from, tt.summaryTime)
+			next := CalculateNextSummaryTime(tt.from, tt.summaryTime)
 
 			expectedTime := tt.from.AddDate(0, 0, tt.expectedDay)
 			expectedTime = time.Date(expectedTime.Year(), expectedTime.Month(), expectedTime.Day(),
@@ -286,6 +287,6 @@ type mockAlwaysRunTask struct {
 
 func (m *mockAlwaysRunTask) ID() string                                                            { return "test-task" }
 func (m *mockAlwaysRunTask) Name() string                                                          { return "Mock Task" }
-func (m *mockAlwaysRunTask) ShouldRun(now time.Time, config *TaskConfig) (bool, *TaskConfig)      { return true, nil }
+func (m *mockAlwaysRunTask) ShouldRun(now time.Time, config *TaskConfig) (bool, func(*TaskConfig)) { return true, nil }
 func (m *mockAlwaysRunTask) Execute() error                                                        { m.executed = true; return nil }
 func (m *mockAlwaysRunTask) OnExecuted(now time.Time, config *TaskConfig, err error)              {}

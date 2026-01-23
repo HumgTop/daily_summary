@@ -37,7 +37,7 @@ func (t *ReminderTask) Name() string {
 }
 
 // ShouldRun 判断是否应该执行
-func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, *scheduler.TaskConfig) {
+func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, func(*scheduler.TaskConfig)) {
 	if !config.Enabled {
 		return false, nil
 	}
@@ -62,11 +62,11 @@ func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (b
 		log.Printf("Task %s delayed too long (%v > %v), rescheduling...",
 			config.ID, delay, maxDelay)
 
-		// 创建新配置（不修改原配置）
-		newConfig := *config
-		newConfig.NextRun = t.calculateNextRun(now, config.IntervalMinutes)
-
-		return false, &newConfig
+		// 返回更新函数
+		next := t.calculateNextRun(now, config.IntervalMinutes)
+		return false, func(latest *scheduler.TaskConfig) {
+			latest.NextRun = next
+		}
 	}
 
 	return true, nil

@@ -113,8 +113,9 @@ func (r *Registry) GetAllTasks() []*TaskConfig {
 	return tasks
 }
 
-// UpdateTask 更新任务配置
-func (r *Registry) UpdateTask(config *TaskConfig) error {
+// PatchTask 增量更新任务配置（安全模式）
+// 通过回调函数修改最新配置，避免并发覆盖问题。
+func (r *Registry) PatchTask(id string, updateFunc func(task *TaskConfig)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -126,16 +127,17 @@ func (r *Registry) UpdateTask(config *TaskConfig) error {
 
 	// 查找并更新
 	found := false
-	for i, task := range registry.Tasks {
-		if task.ID == config.ID {
-			registry.Tasks[i] = config
+	for _, task := range registry.Tasks {
+		if task.ID == id {
+			// 在最新配置上执行更新
+			updateFunc(task)
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		return fmt.Errorf("task not found: %s", config.ID)
+		return fmt.Errorf("task not found: %s", id)
 	}
 
 	// 保存回文件

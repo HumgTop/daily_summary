@@ -34,7 +34,7 @@ func (t *LogRotateTask) Name() string {
 }
 
 // ShouldRun 判断是否应该执行
-func (t *LogRotateTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, *scheduler.TaskConfig) {
+func (t *LogRotateTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, func(*scheduler.TaskConfig)) {
 	if !config.Enabled {
 		return false, nil
 	}
