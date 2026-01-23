@@ -2,16 +2,19 @@ package scheduler
 
 import (
 	"log"
+	"sync"
 	"time"
 )
 
 // Scheduler 通用调度器（基于短周期检查）
 type Scheduler struct {
-	registry      *Registry           // 任务注册表
-	tasks         map[string]Task     // 任务实例映射
-	stopCh        chan struct{}       // 停止信号
-	checkInterval time.Duration       // 检查间隔
-	runDir        string              // 运行目录
+	registry      *Registry       // 任务注册表
+	tasks         map[string]Task // 任务实例映射
+	runningTasks  map[string]bool // 正在执行的任务标记
+	runningMu     sync.Mutex      // 保护 runningTasks 的互斥锁
+	stopCh        chan struct{}   // 停止信号
+	checkInterval time.Duration   // 检查间隔
+	runDir        string          // 运行目录
 }
 
 // NewScheduler 创建调度器
@@ -19,6 +22,7 @@ func NewScheduler(runDir string) *Scheduler {
 	return &Scheduler{
 		registry:      NewRegistry(runDir),
 		tasks:         make(map[string]Task),
+		runningTasks:  make(map[string]bool),
 		stopCh:        make(chan struct{}),
 		checkInterval: 1 * time.Minute, // 固定 1 分钟检查间隔
 		runDir:        runDir,
@@ -49,7 +53,13 @@ func (s *Scheduler) Start() error {
 			if config.Enabled {
 				status = "enabled"
 			}
-			log.Printf("  - %s: %s (%s)", config.ID, config.Name, status)
+			// 打印任务基本信息和下一次调度时间
+			if config.Enabled && !config.NextRun.IsZero() {
+				log.Printf("  - %s: %s (%s, next run: %s)",
+					config.ID, config.Name, status, config.NextRun.Format("2006-01-02 15:04:05"))
+			} else {
+				log.Printf("  - %s: %s (%s)", config.ID, config.Name, status)
+			}
 		}
 	} else {
 		log.Println("No tasks found in registry, will initialize from config")
@@ -113,9 +123,25 @@ func (s *Scheduler) checkAndRunTasks() {
 			continue
 		}
 
+		// 检查任务是否正在执行中（防止重复触发）
+		s.runningMu.Lock()
+		if s.runningTasks[config.ID] {
+			s.runningMu.Unlock()
+			log.Printf("Task %s is already running, skipping this cycle", config.ID)
+			continue
+		}
+		// 标记任务为执行中
+		s.runningTasks[config.ID] = true
+		s.runningMu.Unlock()
+
 		// 执行任务
 		log.Printf("Executing task: %s (%s)", task.ID(), task.Name())
 		err := task.Execute()
+
+		// 清除执行状态标记
+		s.runningMu.Lock()
+		delete(s.runningTasks, config.ID)
+		s.runningMu.Unlock()
 
 		// 回调处理（更新配置）
 		task.OnExecuted(now, config, err)
