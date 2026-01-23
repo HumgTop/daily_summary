@@ -40,9 +40,9 @@ func (t *SummaryTask) Name() string {
 }
 
 // ShouldRun 判断是否应该执行
-func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) bool {
+func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, *scheduler.TaskConfig) {
 	if !config.Enabled {
-		return false
+		return false, nil
 	}
 
 	// 今天的日期
@@ -51,7 +51,7 @@ func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) boo
 	// 检查今天是否已经生成过
 	if lastDate, ok := config.Data["last_generated_date"].(string); ok {
 		if lastDate == today {
-			return false
+			return false, nil
 		}
 	}
 
@@ -61,19 +61,25 @@ func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) boo
 
 	// 检查是否已过总结时间
 	if !now.After(todaySummaryTime) {
-		return false
+		return false, nil
 	}
 
 	// 检查昨天是否有记录且未生成总结
 	yesterday := now.AddDate(0, 0, -1)
 	yesterdayData, err := t.storage.GetDailyData(yesterday)
 	if err != nil {
-		// 没有昨天的数据，跳过
-		return false
+		// 获取数据失败，记录日志并跳过
+		return false, nil
+	}
+
+	// 如果昨天没有数据，记录日志并跳过
+	if len(yesterdayData.Entries) == 0 {
+		log.Printf("SummaryTask: skipped, no entries for %s", yesterday.Format("2006-01-02"))
+		return false, nil
 	}
 
 	// 如果昨天有记录且未生成总结，返回 true
-	return len(yesterdayData.Entries) > 0 && !yesterdayData.SummaryGenerated
+	return !yesterdayData.SummaryGenerated, nil
 }
 
 // Execute 执行任务

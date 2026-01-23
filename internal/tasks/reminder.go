@@ -37,17 +37,39 @@ func (t *ReminderTask) Name() string {
 }
 
 // ShouldRun 判断是否应该执行
-func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) bool {
+func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, *scheduler.TaskConfig) {
 	if !config.Enabled {
-		return false
+		return false, nil
 	}
 
 	// 检查下次执行时间
 	if config.NextRun.IsZero() {
-		return false
+		return false, nil
 	}
 
-	return !now.Before(config.NextRun)
+	// 如果还未到执行时间，跳过
+	if now.Before(config.NextRun) {
+		return false, nil
+	}
+
+	// 延迟检测：如果距离预定执行时间过长，说明任务失效（如电脑休眠）
+	// 计算延迟时间
+	delay := now.Sub(config.NextRun)
+	maxDelay := time.Duration(config.IntervalMinutes/2) * time.Minute
+
+	if delay > maxDelay {
+		// 延迟过长，重新计算下次执行时间，跳过本次执行
+		log.Printf("Task %s delayed too long (%v > %v), rescheduling...",
+			config.ID, delay, maxDelay)
+
+		// 创建新配置（不修改原配置）
+		newConfig := *config
+		newConfig.NextRun = t.calculateNextRun(now, config.IntervalMinutes)
+
+		return false, &newConfig
+	}
+
+	return true, nil
 }
 
 // Execute 执行任务

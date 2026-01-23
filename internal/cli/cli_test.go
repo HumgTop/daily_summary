@@ -33,9 +33,7 @@ func TestUpdateTaskSchedule(t *testing.T) {
 		t.Fatalf("Failed to add task: %v", err)
 	}
 
-	if err := registry.Save(); err != nil {
-		t.Fatalf("Failed to save registry: %v", err)
-	}
+
 
 	// 更新任务调度
 	addTime := now.Add(5 * time.Minute)

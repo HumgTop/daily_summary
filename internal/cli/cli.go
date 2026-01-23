@@ -264,10 +264,7 @@ func updateTaskSchedule(dataDir string, addTime time.Time) error {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
-	// 保存到文件
-	if err := registry.Save(); err != nil {
-		return fmt.Errorf("failed to save task registry: %w", err)
-	}
+
 
 	log.Printf("Updated work-reminder schedule: %s -> %s",
 		oldNextRun.Format("15:04:05"),

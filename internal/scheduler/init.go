@@ -79,11 +79,7 @@ func (s *Scheduler) InitializeTasksFromConfig(
 	log.Printf("Initialized task: %s (interval: 3 hours, next run: %s)",
 		logRotateTask.Name, nextLogRotateTime.Format("2006-01-02 15:04:05"))
 
-	// 保存到文件
-	if err := s.registry.Save(); err != nil {
-		return err
-	}
-
+	// 所有任务已通过 upsertTask 自动保存到文件
 	log.Println("Tasks initialized and saved to registry")
 	return nil
 }

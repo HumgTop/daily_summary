@@ -24,10 +24,7 @@ func TestRegistryLoadAndSave(t *testing.T) {
 		t.Fatalf("Failed to add task: %v", err)
 	}
 
-	// 保存
-	if err := registry.Save(); err != nil {
-		t.Fatalf("Failed to save registry: %v", err)
-	}
+
 
 	// 创建新的注册表并加载
 	registry2 := NewRegistry(tmpDir)
@@ -287,8 +284,8 @@ type mockAlwaysRunTask struct {
 	executed bool
 }
 
-func (m *mockAlwaysRunTask) ID() string                                              { return "test-task" }
-func (m *mockAlwaysRunTask) Name() string                                            { return "Mock Task" }
-func (m *mockAlwaysRunTask) ShouldRun(now time.Time, config *TaskConfig) bool        { return true }
-func (m *mockAlwaysRunTask) Execute() error                                          { m.executed = true; return nil }
-func (m *mockAlwaysRunTask) OnExecuted(now time.Time, config *TaskConfig, err error) {}
+func (m *mockAlwaysRunTask) ID() string                                                            { return "test-task" }
+func (m *mockAlwaysRunTask) Name() string                                                          { return "Mock Task" }
+func (m *mockAlwaysRunTask) ShouldRun(now time.Time, config *TaskConfig) (bool, *TaskConfig)      { return true, nil }
+func (m *mockAlwaysRunTask) Execute() error                                                        { m.executed = true; return nil }
+func (m *mockAlwaysRunTask) OnExecuted(now time.Time, config *TaskConfig, err error)              {}

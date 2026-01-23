@@ -8,60 +8,48 @@ import (
 	"sync"
 )
 
-// Registry 任务注册表管理器
+// Registry 任务注册表管理器（基于文件的数据存储，确保数据一致性）
 type Registry struct {
-	filePath string
-	registry *TaskRegistry
-	mu       sync.RWMutex
+	filePath string     // JSON 文件路径
+	mu       sync.Mutex // 文件操作互斥锁
 }
 
 // NewRegistry 创建任务注册表
 func NewRegistry(runDir string) *Registry {
 	return &Registry{
 		filePath: filepath.Join(runDir, "tasks.json"),
-		registry: &TaskRegistry{
-			Tasks: make([]*TaskConfig, 0),
-		},
 	}
 }
 
-// Load 从文件加载任务配置
-func (r *Registry) Load() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+// load 从文件加载任务配置（内部方法，调用者需持有锁）
+func (r *Registry) load() (*TaskRegistry, error) {
 	// 检查文件是否存在
 	if _, err := os.Stat(r.filePath); os.IsNotExist(err) {
-		// 文件不存在，使用空注册表
-		r.registry = &TaskRegistry{
+		// 文件不存在，返回空注册表
+		return &TaskRegistry{
 			Tasks: make([]*TaskConfig, 0),
-		}
-		return nil
+		}, nil
 	}
 
 	// 读取文件
 	data, err := os.ReadFile(r.filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read tasks file: %w", err)
+		return nil, fmt.Errorf("failed to read tasks file: %w", err)
 	}
 
 	// 解析 JSON
 	var registry TaskRegistry
 	if err := json.Unmarshal(data, &registry); err != nil {
-		return fmt.Errorf("failed to parse tasks file: %w", err)
+		return nil, fmt.Errorf("failed to parse tasks JSON: %w", err)
 	}
 
-	r.registry = &registry
-	return nil
+	return &registry, nil
 }
 
-// Save 保存任务配置到文件
-func (r *Registry) Save() error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
+// save 保存任务配置到文件（内部方法，调用者需持有锁）
+func (r *Registry) save(registry *TaskRegistry) error {
 	// 序列化为 JSON
-	data, err := json.MarshalIndent(r.registry, "", "  ")
+	data, err := json.MarshalIndent(registry, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal tasks: %w", err)
 	}
@@ -80,27 +68,48 @@ func (r *Registry) Save() error {
 	return nil
 }
 
-// GetTask 获取指定 ID 的任务配置
-func (r *Registry) GetTask(id string) *TaskConfig {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+// Load 从文件加载任务配置（公开方法，用于初始化验证）
+func (r *Registry) Load() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	for _, task := range r.registry.Tasks {
+	// 只是验证文件可以正常加载
+	_, err := r.load()
+	return err
+}
+
+// GetTask 获取指定任务配置
+func (r *Registry) GetTask(id string) *TaskConfig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	registry, err := r.load()
+	if err != nil {
+		return nil
+	}
+
+	for _, task := range registry.Tasks {
 		if task.ID == id {
 			return task
 		}
 	}
+
 	return nil
 }
 
 // GetAllTasks 获取所有任务配置
 func (r *Registry) GetAllTasks() []*TaskConfig {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	// 返回副本，避免并发问题
-	tasks := make([]*TaskConfig, len(r.registry.Tasks))
-	copy(tasks, r.registry.Tasks)
+	registry, err := r.load()
+	if err != nil {
+		return make([]*TaskConfig, 0)
+	}
+
+	// 返回副本
+	tasks := make([]*TaskConfig, len(registry.Tasks))
+	copy(tasks, registry.Tasks)
 	return tasks
 }
 
@@ -109,43 +118,83 @@ func (r *Registry) UpdateTask(config *TaskConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for i, task := range r.registry.Tasks {
+	// 加载现有数据
+	registry, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	// 查找并更新
+	found := false
+	for i, task := range registry.Tasks {
 		if task.ID == config.ID {
-			r.registry.Tasks[i] = config
-			return nil
+			registry.Tasks[i] = config
+			found = true
+			break
 		}
 	}
 
-	return fmt.Errorf("task not found: %s", config.ID)
+	if !found {
+		return fmt.Errorf("task not found: %s", config.ID)
+	}
+
+	// 保存回文件
+	return r.save(registry)
 }
 
-// AddTask 添加新任务
+// AddTask 添加任务配置
 func (r *Registry) AddTask(config *TaskConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// 加载现有数据
+	registry, err := r.load()
+	if err != nil {
+		return err
+	}
+
 	// 检查是否已存在
-	for _, task := range r.registry.Tasks {
+	for _, task := range registry.Tasks {
 		if task.ID == config.ID {
 			return fmt.Errorf("task already exists: %s", config.ID)
 		}
 	}
 
-	r.registry.Tasks = append(r.registry.Tasks, config)
-	return nil
+	// 添加新任务
+	registry.Tasks = append(registry.Tasks, config)
+
+	// 保存回文件
+	return r.save(registry)
 }
 
-// RemoveTask 移除任务
+// RemoveTask 移除任务配置
 func (r *Registry) RemoveTask(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for i, task := range r.registry.Tasks {
-		if task.ID == id {
-			r.registry.Tasks = append(r.registry.Tasks[:i], r.registry.Tasks[i+1:]...)
-			return nil
+	// 加载现有数据
+	registry, err := r.load()
+	if err != nil {
+		return err
+	}
+
+	// 查找并移除
+	found := false
+	newTasks := make([]*TaskConfig, 0, len(registry.Tasks))
+	for _, task := range registry.Tasks {
+		if task.ID != id {
+			newTasks = append(newTasks, task)
+		} else {
+			found = true
 		}
 	}
 
-	return fmt.Errorf("task not found: %s", id)
+	if !found {
+		return fmt.Errorf("task not found: %s", id)
+	}
+
+	registry.Tasks = newTasks
+
+	// 保存回文件
+	return r.save(registry)
 }

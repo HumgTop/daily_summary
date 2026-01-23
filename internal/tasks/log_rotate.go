@@ -34,17 +34,17 @@ func (t *LogRotateTask) Name() string {
 }
 
 // ShouldRun 判断是否应该执行
-func (t *LogRotateTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) bool {
+func (t *LogRotateTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bool, *scheduler.TaskConfig) {
 	if !config.Enabled {
-		return false
+		return false, nil
 	}
 
 	// 检查下次执行时间
 	if config.NextRun.IsZero() {
-		return false
+		return false, nil
 	}
 
-	return !now.Before(config.NextRun)
+	return !now.Before(config.NextRun), nil
 }
 
 // Execute 执行任务

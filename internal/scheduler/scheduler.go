@@ -162,7 +162,18 @@ func (s *Scheduler) checkAndRunTasks() {
 		}
 
 		// 第二段判断：任务的细粒度业务逻辑检查
-		if !task.ShouldRun(now, config) {
+		shouldRun, newConfig := task.ShouldRun(now, config)
+
+		// 如果 ShouldRun 返回了新配置（如延迟检测重新计算 NextRun），更新配置
+		// UpdateTask 会自动保存到文件，确保数据一致性
+		if newConfig != nil {
+			config = newConfig
+			if err := s.registry.UpdateTask(config); err != nil {
+				log.Printf("Failed to update task config: %v", err)
+			}
+		}
+
+		if !shouldRun {
 			s.checkLogger.Printf("[SKIP] Task %s (%s): ShouldRun() returned false", config.ID, config.Name)
 			continue
 		}
@@ -198,14 +209,9 @@ func (s *Scheduler) checkAndRunTasks() {
 		// 回调处理（更新配置）
 		task.OnExecuted(now, config, err)
 
-		// 保存更新后的配置
+		// 保存更新后的配置（UpdateTask 会自动保存到文件）
 		if err := s.registry.UpdateTask(config); err != nil {
 			log.Printf("Failed to update task config: %v", err)
-		}
-
-		// 保存注册表到文件
-		if err := s.registry.Save(); err != nil {
-			log.Printf("Failed to save task registry: %v", err)
 		}
 	}
 
