@@ -113,7 +113,7 @@ func TestRegistryOperations(t *testing.T) {
 // TestSchedulerInitialization 测试调度器初始化
 func TestSchedulerInitialization(t *testing.T) {
 	tmpDir := t.TempDir()
-	sched := NewScheduler(tmpDir)
+	sched := NewScheduler(tmpDir, 0) // 0 表示不限制日志大小
 
 	if sched.registry == nil {
 		t.Error("Registry should be initialized")
@@ -253,7 +253,7 @@ func TestCalculateNextSummaryTime(t *testing.T) {
 // TestTwoStageScheduling 测试两段式调度判断
 func TestTwoStageScheduling(t *testing.T) {
 	tmpDir := t.TempDir()
-	sched := NewScheduler(tmpDir)
+	sched := NewScheduler(tmpDir, 0) // 0 表示不限制日志大小
 
 	// 创建一个测试任务配置，next_run 设置为未来
 	futureTime := time.Now().Add(10 * time.Minute)

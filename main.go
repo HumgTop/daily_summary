@@ -165,7 +165,7 @@ func runServeWithConfig(configPath string) {
 
 	// 创建调度器（使用 run 目录作为工作目录）
 	runDir := filepath.Dir(cfg.DataDir)
-	sched := scheduler.NewScheduler(runDir)
+	sched := scheduler.NewScheduler(runDir, cfg.MaxLogSizeMB)
 
 	// 注册任务
 	reminderTask := tasks.NewReminderTask(dlg, store)
@@ -173,6 +173,21 @@ func runServeWithConfig(configPath string) {
 
 	summaryTask := tasks.NewSummaryTask(store, gen, cfg.SummaryTime)
 	sched.RegisterTask(summaryTask)
+
+	// 注册日志轮转任务（每3小时检查一次）
+	if cfg.MaxLogSizeMB > 0 {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		checkLogFile := filepath.Join(runDir, "logs", "scheduler_check.log")
+		
+		logRotateTask := tasks.NewLogRotateTask(
+			[]string{logFile, checkLogFile},
+			cfg.MaxLogSizeMB,
+		)
+		sched.RegisterTask(logRotateTask)
+	}
 
 	// 从配置初始化任务（如果 tasks.json 不存在）
 	intervalMinutes := cfg.MinuteInterval

@@ -67,5 +67,6 @@ log_file: run/logs/app.log
 
 # 日志文件最大大小（单位：MB）
 # 当日志文件超过此大小时，会自动轮转（重命名为 .old 并创建新文件）
+# 此配置同时应用于主应用日志（app.log）和调度器检查日志（scheduler_check.log）
 # 设置为 0 表示不限制大小
 max_log_size_mb: 10

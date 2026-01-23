@@ -37,8 +37,8 @@ type Config struct {
 	ClaudeCodePath string `yaml:"claude_code_path" json:"claude_code_path"` // Claude Code CLI 路径
 	CocoPath       string `yaml:"coco_path" json:"coco_path"`               // Coco CLI 路径
 	
-	DialogTimeout  int    `yaml:"dialog_timeout" json:"dialog_timeout"`     // 对话框超时（秒）
-	EnableLogging  bool   `yaml:"enable_logging" json:"enable_logging"`     // 是否启用日志
-	LogFile        string `yaml:"log_file" json:"log_file"`                 // 日志文件路径（绝对路径）
-	MaxLogSizeMB   int    `yaml:"max_log_size_mb" json:"max_log_size_mb"`   // 日志文件最大大小（MB，0表示不限制）
+	DialogTimeout        int    `yaml:"dialog_timeout" json:"dialog_timeout"`                           // 对话框超时（秒）
+	EnableLogging        bool   `yaml:"enable_logging" json:"enable_logging"`                           // 是否启用日志
+	LogFile              string `yaml:"log_file" json:"log_file"`                                       // 日志文件路径（绝对路径）
+	MaxLogSizeMB         int    `yaml:"max_log_size_mb" json:"max_log_size_mb"`                         // 日志文件最大大小（MB，0表示不限制，应用于app.log和scheduler_check.log）
 }

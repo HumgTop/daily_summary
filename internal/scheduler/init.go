@@ -13,13 +13,7 @@ func (s *Scheduler) InitializeTasksFromConfig(
 	minuteInterval int,
 	summaryTime string,
 ) error {
-	// 检查是否已有任务配置
-	configs := s.registry.GetAllTasks()
-	if len(configs) > 0 {
-		log.Println("Tasks already initialized from registry")
-		return nil
-	}
-
+	// 每次启动时都根据配置重新初始化任务，确保配置与代码保持一致
 	log.Println("Initializing tasks from config...")
 
 	// 创建工作记录提醒任务配置
@@ -42,7 +36,7 @@ func (s *Scheduler) InitializeTasksFromConfig(
 		NextRun:         nextReminderTime,
 	}
 
-	if err := s.registry.AddTask(reminderTask); err != nil {
+	if err := s.upsertTask(reminderTask); err != nil {
 		return err
 	}
 	log.Printf("Initialized task: %s (interval: %d minutes, next run: %s)",
@@ -61,11 +55,29 @@ func (s *Scheduler) InitializeTasksFromConfig(
 		Data:    make(map[string]interface{}),
 	}
 
-	if err := s.registry.AddTask(summaryTask); err != nil {
+	if err := s.upsertTask(summaryTask); err != nil {
 		return err
 	}
 	log.Printf("Initialized task: %s (time: %s, next run: %s)",
 		summaryTask.Name, summaryTime, nextSummaryTime.Format("2006-01-02 15:04:05"))
+
+	// 创建日志轮转任务配置（每3小时执行一次）
+	nextLogRotateTime := now.Add(3 * time.Hour)
+
+	logRotateTask := &TaskConfig{
+		ID:              "log-rotate",
+		Name:            "日志文件轮转",
+		Type:            TaskTypeInterval,
+		Enabled:         true,
+		IntervalMinutes: 180, // 3小时 = 180分钟
+		NextRun:         nextLogRotateTime,
+	}
+
+	if err := s.upsertTask(logRotateTask); err != nil {
+		return err
+	}
+	log.Printf("Initialized task: %s (interval: 3 hours, next run: %s)",
+		logRotateTask.Name, nextLogRotateTime.Format("2006-01-02 15:04:05"))
 
 	// 保存到文件
 	if err := s.registry.Save(); err != nil {
@@ -74,6 +86,17 @@ func (s *Scheduler) InitializeTasksFromConfig(
 
 	log.Println("Tasks initialized and saved to registry")
 	return nil
+}
+
+// upsertTask 添加或更新任务（如果已存在则更新，否则添加）
+func (s *Scheduler) upsertTask(task *TaskConfig) error {
+	existing := s.registry.GetTask(task.ID)
+	if existing != nil {
+		// 任务已存在，更新配置
+		return s.registry.UpdateTask(task)
+	}
+	// 任务不存在，添加
+	return s.registry.AddTask(task)
 }
 
 // calculateNextReminderTime 计算下次提醒时间

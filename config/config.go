@@ -15,13 +15,13 @@ import (
 func DefaultConfig() *models.Config {
 	homeDir, _ := os.UserHomeDir()
 	return &models.Config{
-		DataDir:        filepath.Join(homeDir, "daily_summary", "data"),
-		SummaryDir:     filepath.Join(homeDir, "daily_summary", "summaries"),
-		HourlyInterval: 1,
-		SummaryTime:    "00:00",
-		ClaudeCodePath: "claude-code",
-		DialogTimeout:  300, // 5分钟
-		EnableLogging:  true,
+		DataDir:              filepath.Join(homeDir, "daily_summary", "data"),
+		SummaryDir:           filepath.Join(homeDir, "daily_summary", "summaries"),
+		HourlyInterval:       1,
+		SummaryTime:          "00:00",
+		ClaudeCodePath:       "claude-code",
+		DialogTimeout:        300, // 5分钟
+		EnableLogging:        true,
 	}
 }
 
