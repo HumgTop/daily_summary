@@ -17,6 +17,7 @@ import (
 	"humg.top/daily_summary/internal/scheduler"
 	"humg.top/daily_summary/internal/storage"
 	"humg.top/daily_summary/internal/summary"
+	"humg.top/daily_summary/internal/tasks"
 )
 
 func main() {
@@ -162,7 +163,25 @@ func runServeWithConfig(configPath string) {
 
 	gen := summary.NewGenerator(store, aiClient, dlg)
 
-	sched := scheduler.NewScheduler(cfg, dlg, store, gen)
+	// 创建调度器（使用 run 目录作为工作目录）
+	runDir := filepath.Dir(cfg.DataDir)
+	sched := scheduler.NewScheduler(runDir)
+
+	// 注册任务
+	reminderTask := tasks.NewReminderTask(dlg, store)
+	sched.RegisterTask(reminderTask)
+
+	summaryTask := tasks.NewSummaryTask(store, gen, cfg.SummaryTime)
+	sched.RegisterTask(summaryTask)
+
+	// 从配置初始化任务（如果 tasks.json 不存在）
+	intervalMinutes := cfg.MinuteInterval
+	if intervalMinutes == 0 {
+		intervalMinutes = cfg.HourlyInterval * 60
+	}
+	if err := sched.InitializeTasksFromConfig(cfg.HourlyInterval, cfg.MinuteInterval, cfg.SummaryTime); err != nil {
+		log.Fatalf("Failed to initialize tasks: %v", err)
+	}
 
 	// 启动调度器
 	go func() {

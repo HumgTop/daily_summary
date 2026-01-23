@@ -12,6 +12,7 @@ import (
 
 	"humg.top/daily_summary/internal/dialog"
 	"humg.top/daily_summary/internal/models"
+	"humg.top/daily_summary/internal/scheduler"
 	"humg.top/daily_summary/internal/storage"
 )
 
@@ -31,12 +32,12 @@ func RunAdd(store storage.Storage, content string, dataDir string) error {
 	log.Printf("Work entry added: %s", content)
 	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
 
-	// 发送重置信号给调度器
-	if err := sendResetSignal(dataDir); err != nil {
-		// 发送信号失败不影响主流程，只记录日志
-		log.Printf("Failed to send reset signal: %v", err)
+	// 更新任务调度（重新计算下次提醒时间）
+	if err := updateTaskSchedule(dataDir, now); err != nil {
+		// 更新失败不影响主流程，只记录日志
+		log.Printf("Failed to update task schedule: %v", err)
 	} else {
-		log.Println("Reset signal sent to scheduler")
+		log.Println("Task schedule updated")
 	}
 
 	return nil
@@ -102,12 +103,12 @@ func RunPopup(store storage.Storage, dlg dialog.Dialog, dataDir string) error {
 	log.Printf("Work entry added via popup: %s", content)
 	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
 
-	// 发送重置信号给调度器
-	if err := sendResetSignal(dataDir); err != nil {
-		// 发送信号失败不影响主流程，只记录日志
-		log.Printf("Failed to send reset signal: %v", err)
+	// 更新任务调度（重新计算下次提醒时间）
+	if err := updateTaskSchedule(dataDir, now); err != nil {
+		// 更新失败不影响主流程，只记录日志
+		log.Printf("Failed to update task schedule: %v", err)
 	} else {
-		log.Println("Reset signal sent to scheduler")
+		log.Println("Task schedule updated")
 	}
 
 	return nil
@@ -217,22 +218,60 @@ func isProcessRunning(pidStr string) bool {
 	return err == nil
 }
 
-// sendResetSignal 发送重置信号给调度器
+// updateTaskSchedule 更新任务调度时间（直接修改 tasks.json）
 // dataDir: 数据目录的绝对路径
-func sendResetSignal(dataDir string) error {
-	// 使用 dataDir 的父目录（项目 run 目录）来存放信号文件
+// addTime: 记录添加的时间
+func updateTaskSchedule(dataDir string, addTime time.Time) error {
+	// 使用 dataDir 的父目录（项目 run 目录）
 	runDir := filepath.Dir(dataDir)
-	signalFile := filepath.Join(runDir, ".reset_signal")
 
-	// 确保目录存在
-	if err := os.MkdirAll(runDir, 0755); err != nil {
-		return fmt.Errorf("failed to create signal directory: %w", err)
+	// 加载任务注册表
+	registry := scheduler.NewRegistry(runDir)
+	if err := registry.Load(); err != nil {
+		// 如果 tasks.json 不存在，说明调度器还未初始化，无需更新
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to load task registry: %w", err)
 	}
 
-	// 创建信号文件（空文件即可）
-	if err := os.WriteFile(signalFile, []byte{}, 0644); err != nil {
-		return fmt.Errorf("failed to create signal file: %w", err)
+	// 获取 work-reminder 任务配置
+	config := registry.GetTask("work-reminder")
+	if config == nil {
+		// 任务不存在，可能还未初始化
+		return nil
 	}
+
+	// 计算新的下次执行时间（从当前时间开始）
+	intervalMinutes := config.IntervalMinutes
+	if intervalMinutes <= 0 {
+		intervalMinutes = 60 // 默认 1 小时
+	}
+
+	interval := time.Duration(intervalMinutes) * time.Minute
+	newNextRun := addTime.Truncate(time.Minute).Add(interval)
+
+	// 确保在未来
+	for !newNextRun.After(addTime) {
+		newNextRun = newNextRun.Add(interval)
+	}
+
+	oldNextRun := config.NextRun
+	config.NextRun = newNextRun
+
+	// 更新任务配置
+	if err := registry.UpdateTask(config); err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+
+	// 保存到文件
+	if err := registry.Save(); err != nil {
+		return fmt.Errorf("failed to save task registry: %w", err)
+	}
+
+	log.Printf("Updated work-reminder schedule: %s -> %s",
+		oldNextRun.Format("15:04:05"),
+		newNextRun.Format("15:04:05"))
 
 	return nil
 }

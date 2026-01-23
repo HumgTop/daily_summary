@@ -1,180 +1,294 @@
 package scheduler
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
-
-	"humg.top/daily_summary/internal/models"
 )
 
-// TestResetSignalPath 测试重置信号文件路径
-func TestResetSignalPath(t *testing.T) {
-	// 使用临时目录创建测试配置
+// TestRegistryLoadAndSave 测试任务注册表的加载和保存
+func TestRegistryLoadAndSave(t *testing.T) {
 	tmpDir := t.TempDir()
-	dataDir := filepath.Join(tmpDir, "data")
-	
-	s := &Scheduler{
-		config: &models.Config{
-			DataDir: dataDir,
+	registry := NewRegistry(tmpDir)
+
+	// 添加测试任务
+	task := &TaskConfig{
+		ID:              "test-task",
+		Name:            "Test Task",
+		Type:            TaskTypeInterval,
+		Enabled:         true,
+		IntervalMinutes: 30,
+		NextRun:         time.Now().Add(30 * time.Minute),
+	}
+
+	if err := registry.AddTask(task); err != nil {
+		t.Fatalf("Failed to add task: %v", err)
+	}
+
+	// 保存
+	if err := registry.Save(); err != nil {
+		t.Fatalf("Failed to save registry: %v", err)
+	}
+
+	// 创建新的注册表并加载
+	registry2 := NewRegistry(tmpDir)
+	if err := registry2.Load(); err != nil {
+		t.Fatalf("Failed to load registry: %v", err)
+	}
+
+	// 验证加载的任务
+	loadedTask := registry2.GetTask("test-task")
+	if loadedTask == nil {
+		t.Fatal("Task not found after load")
+	}
+
+	if loadedTask.Name != task.Name {
+		t.Errorf("Expected name %s, got %s", task.Name, loadedTask.Name)
+	}
+
+	if loadedTask.IntervalMinutes != task.IntervalMinutes {
+		t.Errorf("Expected interval %d, got %d", task.IntervalMinutes, loadedTask.IntervalMinutes)
+	}
+}
+
+// TestRegistryOperations 测试注册表的增删改查操作
+func TestRegistryOperations(t *testing.T) {
+	tmpDir := t.TempDir()
+	registry := NewRegistry(tmpDir)
+
+	// 测试添加任务
+	task1 := &TaskConfig{
+		ID:      "task-1",
+		Name:    "Task 1",
+		Type:    TaskTypeInterval,
+		Enabled: true,
+	}
+
+	if err := registry.AddTask(task1); err != nil {
+		t.Fatalf("Failed to add task1: %v", err)
+	}
+
+	// 测试重复添加应该失败
+	if err := registry.AddTask(task1); err == nil {
+		t.Error("Expected error when adding duplicate task")
+	}
+
+	// 测试获取任务
+	retrieved := registry.GetTask("task-1")
+	if retrieved == nil {
+		t.Fatal("Failed to get task")
+	}
+
+	// 测试更新任务
+	retrieved.Enabled = false
+	if err := registry.UpdateTask(retrieved); err != nil {
+		t.Fatalf("Failed to update task: %v", err)
+	}
+
+	updated := registry.GetTask("task-1")
+	if updated.Enabled {
+		t.Error("Task should be disabled after update")
+	}
+
+	// 测试获取所有任务
+	allTasks := registry.GetAllTasks()
+	if len(allTasks) != 1 {
+		t.Errorf("Expected 1 task, got %d", len(allTasks))
+	}
+
+	// 测试删除任务
+	if err := registry.RemoveTask("task-1"); err != nil {
+		t.Fatalf("Failed to remove task: %v", err)
+	}
+
+	if registry.GetTask("task-1") != nil {
+		t.Error("Task should be removed")
+	}
+
+	// 测试删除不存在的任务应该失败
+	if err := registry.RemoveTask("non-existent"); err == nil {
+		t.Error("Expected error when removing non-existent task")
+	}
+}
+
+// TestSchedulerInitialization 测试调度器初始化
+func TestSchedulerInitialization(t *testing.T) {
+	tmpDir := t.TempDir()
+	sched := NewScheduler(tmpDir)
+
+	if sched.registry == nil {
+		t.Error("Registry should be initialized")
+	}
+
+	if sched.tasks == nil {
+		t.Error("Tasks map should be initialized")
+	}
+
+	if sched.checkInterval != 1*time.Minute {
+		t.Errorf("Expected check interval 1 minute, got %v", sched.checkInterval)
+	}
+}
+
+// TestCalculateNextReminderTime 测试计算下次提醒时间
+func TestCalculateNextReminderTime(t *testing.T) {
+	tests := []struct {
+		name            string
+		from            time.Time
+		intervalMinutes int
+		expectedMinute  int
+	}{
+		{
+			name:            "30 minutes from 14:45",
+			from:            time.Date(2026, 1, 23, 14, 45, 0, 0, time.Local),
+			intervalMinutes: 30,
+			expectedMinute:  15, // 14:45 -> 15:15
+		},
+		{
+			name:            "45 minutes from 14:30",
+			from:            time.Date(2026, 1, 23, 14, 30, 0, 0, time.Local),
+			intervalMinutes: 45,
+			expectedMinute:  15, // 14:30 -> 15:15
+		},
+		{
+			name:            "60 minutes from 14:30",
+			from:            time.Date(2026, 1, 23, 14, 30, 0, 0, time.Local),
+			intervalMinutes: 60,
+			expectedMinute:  30, // 14:30 -> 15:30
 		},
 	}
-	
-	path := s.getResetSignalPath()
-	expected := filepath.Join(tmpDir, ".reset_signal")
 
-	if path != expected {
-		t.Errorf("Expected path %s, got %s", expected, path)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := calculateNextReminderTime(tt.from, tt.intervalMinutes)
+
+			// 验证时间在未来
+			if !next.After(tt.from) {
+				t.Errorf("Next time %s should be after from time %s",
+					next.Format("15:04"), tt.from.Format("15:04"))
+			}
+
+			// 验证分钟对齐
+			if next.Minute() != tt.expectedMinute {
+				t.Errorf("Expected minute %d, got %d", tt.expectedMinute, next.Minute())
+			}
+		})
 	}
 }
 
-// TestCheckAndClearResetSignal 测试信号文件检测和清除
-func TestCheckAndClearResetSignal(t *testing.T) {
-	// 使用临时目录创建测试配置
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0755)
-	
-	s := &Scheduler{
-		config: &models.Config{
-			DataDir: dataDir,
+// TestCalculateNextSummaryTime 测试计算下次总结时间
+func TestCalculateNextSummaryTime(t *testing.T) {
+	tests := []struct {
+		name        string
+		from        time.Time
+		summaryTime string
+		expectedDay int    // 期望的日期（相对于 from）
+		expectedH   int    // 期望的小时
+		expectedM   int    // 期望的分钟
+	}{
+		{
+			name:        "before summary time today",
+			from:        time.Date(2026, 1, 23, 10, 30, 0, 0, time.Local),
+			summaryTime: "11:00",
+			expectedDay: 0, // 今天
+			expectedH:   11,
+			expectedM:   0,
+		},
+		{
+			name:        "after summary time today",
+			from:        time.Date(2026, 1, 23, 11, 30, 0, 0, time.Local),
+			summaryTime: "11:00",
+			expectedDay: 1, // 明天
+			expectedH:   11,
+			expectedM:   0,
+		},
+		{
+			name:        "exactly at summary time",
+			from:        time.Date(2026, 1, 23, 11, 0, 0, 0, time.Local),
+			summaryTime: "11:00",
+			expectedDay: 1, // 明天（因为 from.After(todaySummaryTime) || from.Equal(todaySummaryTime)）
+			expectedH:   11,
+			expectedM:   0,
+		},
+		{
+			name:        "late night before midnight summary",
+			from:        time.Date(2026, 1, 23, 23, 30, 0, 0, time.Local),
+			summaryTime: "00:00",
+			expectedDay: 1, // 明天
+			expectedH:   0,
+			expectedM:   0,
+		},
+		{
+			name:        "early morning after midnight summary",
+			from:        time.Date(2026, 1, 23, 0, 30, 0, 0, time.Local),
+			summaryTime: "00:00",
+			expectedDay: 1, // 明天
+			expectedH:   0,
+			expectedM:   0,
 		},
 	}
 
-	signalFile := s.getResetSignalPath()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := calculateNextSummaryTime(tt.from, tt.summaryTime)
 
-	// 测试：文件不存在时返回 false
-	if s.checkAndClearResetSignal() {
-		t.Error("Expected false when signal file does not exist")
-	}
+			expectedTime := tt.from.AddDate(0, 0, tt.expectedDay)
+			expectedTime = time.Date(expectedTime.Year(), expectedTime.Month(), expectedTime.Day(),
+				tt.expectedH, tt.expectedM, 0, 0, time.Local)
 
-	// 创建信号文件
-	if err := os.WriteFile(signalFile, []byte{}, 0644); err != nil {
-		t.Fatalf("Failed to create signal file: %v", err)
-	}
+			if !next.Equal(expectedTime) {
+				t.Errorf("Expected %s, got %s",
+					expectedTime.Format("2006-01-02 15:04:05"),
+					next.Format("2006-01-02 15:04:05"))
+			}
 
-	// 测试：文件存在时返回 true 并删除文件
-	if !s.checkAndClearResetSignal() {
-		t.Error("Expected true when signal file exists")
-	}
-
-	// 验证文件已被删除
-	if _, err := os.Stat(signalFile); !os.IsNotExist(err) {
-		t.Error("Signal file should be deleted after check")
-	}
-}
-
-// TestResetChannel 测试重置通道机制
-func TestResetChannel(t *testing.T) {
-	// 创建调度器（不启动）
-	s := &Scheduler{
-		resetCh: make(chan struct{}, 1),
-		stopCh:  make(chan struct{}),
-	}
-
-	// 测试非阻塞发送
-	select {
-	case s.resetCh <- struct{}{}:
-		// 成功发送
-	default:
-		t.Error("Should be able to send to reset channel")
-	}
-
-	// 测试接收
-	select {
-	case <-s.resetCh:
-		// 成功接收
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Should receive from reset channel")
+			// 验证时间在未来或等于当前（等于的情况会在下一个周期跳过）
+			if next.Before(tt.from) {
+				t.Errorf("Next time %s should not be before from time %s",
+					next.Format("2006-01-02 15:04:05"),
+					tt.from.Format("2006-01-02 15:04:05"))
+			}
+		})
 	}
 }
 
-// TestHeartbeatMonitor 测试心跳监控和唤醒检测
-func TestHeartbeatMonitor(t *testing.T) {
-	s := &Scheduler{
-		resetCh:        make(chan struct{}, 1),
-		summaryResetCh: make(chan struct{}, 1),
-		stopCh:         make(chan struct{}),
-		lastHeartbeat:  time.Now(),
+// TestTwoStageScheduling 测试两段式调度判断
+func TestTwoStageScheduling(t *testing.T) {
+	tmpDir := t.TempDir()
+	sched := NewScheduler(tmpDir)
+
+	// 创建一个测试任务配置，next_run 设置为未来
+	futureTime := time.Now().Add(10 * time.Minute)
+	config := &TaskConfig{
+		ID:      "test-task",
+		Name:    "Test Task",
+		Type:    TaskTypeInterval,
+		Enabled: true,
+		NextRun: futureTime,
 	}
 
-	// 模拟睡眠：手动设置 lastHeartbeat 为很久以前
-	s.lastHeartbeat = time.Now().Add(-30 * time.Second)
-
-	// 调用 handleWakeUp 测试唤醒处理
-	s.handleWakeUp(30 * time.Second)
-
-	// 验证重置信号已发送到 resetCh
-	select {
-	case <-s.resetCh:
-		// 成功接收 hourly task 重置信号
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Should receive reset signal for hourly task")
+	if err := sched.registry.AddTask(config); err != nil {
+		t.Fatalf("Failed to add task: %v", err)
 	}
 
-	// 验证重置信号已发送到 summaryResetCh
-	select {
-	case <-s.summaryResetCh:
-		// 成功接收 summary task 重置信号
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Should receive reset signal for summary task")
-	}
-}
+	// 注册一个模拟任务（ShouldRun 总是返回 true）
+	mockTask := &mockAlwaysRunTask{}
+	sched.RegisterTask(mockTask)
 
-// TestWakeUpHandler 测试唤醒处理逻辑
-func TestWakeUpHandler(t *testing.T) {
-	s := &Scheduler{
-		resetCh:        make(chan struct{}, 1),
-		summaryResetCh: make(chan struct{}, 1),
-		stopCh:         make(chan struct{}),
-		lastHeartbeat:  time.Now(),
-	}
+	// 执行检查
+	sched.checkAndRunTasks()
 
-	// 测试短睡眠（< 1小时）
-	s.handleWakeUp(30 * time.Minute)
-
-	// 清空通道
-	<-s.resetCh
-	<-s.summaryResetCh
-
-	// 测试长睡眠（> 1小时）
-	s.handleWakeUp(2 * time.Hour)
-
-	// 验证两个通道都收到信号
-	select {
-	case <-s.resetCh:
-	default:
-		t.Error("Should send reset signal for hourly task")
-	}
-
-	select {
-	case <-s.summaryResetCh:
-	default:
-		t.Error("Should send reset signal for summary task")
+	// 验证任务没有被执行（因为 next_run 在未来，第一段判断就跳过了）
+	if mockTask.executed {
+		t.Error("Task should not be executed when next_run is in the future")
 	}
 }
 
-// TestSummaryResetChannel 测试总结任务重置通道
-func TestSummaryResetChannel(t *testing.T) {
-	s := &Scheduler{
-		summaryResetCh: make(chan struct{}, 1),
-		stopCh:         make(chan struct{}),
-	}
-
-	// 测试非阻塞发送
-	select {
-	case s.summaryResetCh <- struct{}{}:
-		// 成功发送
-	default:
-		t.Error("Should be able to send to summary reset channel")
-	}
-
-	// 测试接收
-	select {
-	case <-s.summaryResetCh:
-		// 成功接收
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Should receive from summary reset channel")
-	}
+// mockAlwaysRunTask 模拟任务，ShouldRun 总是返回 true
+type mockAlwaysRunTask struct {
+	executed bool
 }
+
+func (m *mockAlwaysRunTask) ID() string                                              { return "test-task" }
+func (m *mockAlwaysRunTask) Name() string                                            { return "Mock Task" }
+func (m *mockAlwaysRunTask) ShouldRun(now time.Time, config *TaskConfig) bool        { return true }
+func (m *mockAlwaysRunTask) Execute() error                                          { m.executed = true; return nil }
+func (m *mockAlwaysRunTask) OnExecuted(now time.Time, config *TaskConfig, err error) {}

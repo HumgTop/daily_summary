@@ -23,7 +23,8 @@
       "Bash(./scripts/uninstall.sh:*)",
       "Bash(kill:*)",
       "Bash(pgrep:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(python3:*)"
     ],
     "additionalDirectories": [
       "/tmp",

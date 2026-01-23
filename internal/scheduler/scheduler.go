@@ -1,74 +1,66 @@
 package scheduler
 
 import (
-	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 	"time"
-
-	"humg.top/daily_summary/internal/dialog"
-	"humg.top/daily_summary/internal/models"
-	"humg.top/daily_summary/internal/storage"
-	"humg.top/daily_summary/internal/summary"
 )
 
-// Scheduler 定时任务调度器
+// Scheduler 通用调度器（基于短周期检查）
 type Scheduler struct {
-	config    *models.Config
-	dialog    dialog.Dialog
-	storage   storage.Storage
-	generator *summary.Generator
-	stopCh    chan struct{}
-	resetCh   chan struct{} // 重置计时器的信号通道（hourly task）
-
-	// 心跳监控（用于检测系统睡眠/唤醒）
-	summaryResetCh chan struct{} // 总结任务重置通道
-	lastHeartbeat  time.Time     // 上次心跳时间
-	heartbeatMu    sync.Mutex    // 心跳时间锁
+	registry      *Registry           // 任务注册表
+	tasks         map[string]Task     // 任务实例映射
+	stopCh        chan struct{}       // 停止信号
+	checkInterval time.Duration       // 检查间隔
+	runDir        string              // 运行目录
 }
 
 // NewScheduler 创建调度器
-func NewScheduler(
-	config *models.Config,
-	dialog dialog.Dialog,
-	storage storage.Storage,
-	generator *summary.Generator,
-) *Scheduler {
+func NewScheduler(runDir string) *Scheduler {
 	return &Scheduler{
-		config:    config,
-		dialog:    dialog,
-		storage:   storage,
-		generator: generator,
-		stopCh:    make(chan struct{}),
-		resetCh:   make(chan struct{}, 1), // 带缓冲的通道，避免阻塞
-
-		// 心跳监控初始化
-		summaryResetCh: make(chan struct{}, 1),
-		lastHeartbeat:  time.Now(),
+		registry:      NewRegistry(runDir),
+		tasks:         make(map[string]Task),
+		stopCh:        make(chan struct{}),
+		checkInterval: 1 * time.Minute, // 固定 1 分钟检查间隔
+		runDir:        runDir,
 	}
+}
+
+// RegisterTask 注册任务
+func (s *Scheduler) RegisterTask(task Task) {
+	s.tasks[task.ID()] = task
+	log.Printf("Task registered: %s (%s)", task.ID(), task.Name())
 }
 
 // Start 启动调度器
 func (s *Scheduler) Start() error {
-	log.Println("Scheduler started")
+	log.Println("Scheduler started with task-based scheduling (check interval: 1 minute)")
 
-	// 启动小时任务
-	go s.runHourlyTask()
+	// 加载任务配置
+	if err := s.registry.Load(); err != nil {
+		log.Printf("Warning: failed to load tasks registry: %v", err)
+	}
 
-	// 启动每日总结任务
-	go s.runDailySummaryTask()
+	// 打印已注册的任务
+	configs := s.registry.GetAllTasks()
+	if len(configs) > 0 {
+		log.Printf("Loaded %d task(s) from registry:", len(configs))
+		for _, config := range configs {
+			status := "disabled"
+			if config.Enabled {
+				status = "enabled"
+			}
+			log.Printf("  - %s: %s (%s)", config.ID, config.Name, status)
+		}
+	} else {
+		log.Println("No tasks found in registry, will initialize from config")
+	}
 
-	// 启动信号文件监控
-	go s.watchResetSignal()
-
-	// 启动心跳监控（检测系统睡眠/唤醒）
-	go s.monitorHeartbeat()
+	// 启动调度循环
+	go s.runScheduler()
 
 	// 等待停止信号
 	<-s.stopCh
+	log.Println("Scheduler stopped")
 	return nil
 }
 
@@ -77,333 +69,70 @@ func (s *Scheduler) Stop() {
 	close(s.stopCh)
 }
 
-// runHourlyTask 定期弹窗任务（支持小时或分钟级）
-func (s *Scheduler) runHourlyTask() {
-	var interval time.Duration
-	now := time.Now()
-
-	// 检查是否使用分钟级调度
-	if s.config.MinuteInterval > 0 {
-		// 分钟级调度
-		interval = time.Duration(s.config.MinuteInterval) * time.Minute
-		log.Printf("Using minute-based scheduling: every %d minute(s)", s.config.MinuteInterval)
-	} else {
-		// 小时级调度（默认）
-		interval = time.Duration(s.config.HourlyInterval) * time.Hour
-		log.Printf("Using hour-based scheduling: every %d hour(s)", s.config.HourlyInterval)
-	}
-
-	for {
-		// 每次循环都重新计算下一个触发时间
-		now = time.Now()
-		var nextTrigger time.Time
-
-		if s.config.MinuteInterval > 0 {
-			// 分钟级：对齐到分钟边界
-			nextTrigger = now.Truncate(time.Minute).Add(interval)
-			if nextTrigger.Before(now) || nextTrigger.Equal(now) {
-				nextTrigger = nextTrigger.Add(interval)
-			}
-		} else {
-			// 小时级：对齐到整点
-			nextTrigger = now.Truncate(time.Hour).Add(interval)
-			// 确保下一个触发时间在未来
-			for !nextTrigger.After(now) {
-				nextTrigger = nextTrigger.Add(interval)
-			}
-		}
-
-		log.Printf("Next reminder scheduled at %s", nextTrigger.Format("15:04:05"))
-
-		// 计算跳过阈值
-		var skipThreshold time.Duration
-		if s.config.MinuteInterval > 0 {
-			// 分钟级：阈值为间隔的 50%
-			skipThreshold = interval / 2
-		} else {
-			// 小时级：固定 5 分钟
-			skipThreshold = 5 * time.Minute
-		}
-
-		// 等待到触发时间
-		select {
-		case <-time.After(time.Until(nextTrigger)):
-			// 再次检查当前时间，确保没有严重延迟
-			actualTime := time.Now()
-			expectedTime := nextTrigger
-
-			// 如果延迟超过阈值（比如从睡眠中唤醒），跳过本次调度
-			delay := actualTime.Sub(expectedTime)
-			if delay > skipThreshold {
-				log.Printf("Skipped reminder due to delay (expected: %s, actual: %s, delay: %s, threshold: %s)",
-					expectedTime.Format("15:04:05"),
-					actualTime.Format("15:04:05"),
-					delay,
-					skipThreshold)
-				continue
-			}
-
-			// 正常执行
-			s.showWorkEntryDialog()
-		case <-s.resetCh:
-			// 收到重置信号，重新计算下一次触发时间
-			log.Println("Received reset signal, rescheduling next reminder")
-			continue
-		case <-s.stopCh:
-			return
-		}
-	}
-}
-
-// showWorkEntryDialog 显示工作记录对话框
-func (s *Scheduler) showWorkEntryDialog() {
-	now := time.Now()
-	title := "工作记录"
-
-	// 获取今日所有记录
-	todayData, err := s.storage.GetDailyData(now)
-	var message string
-	if err != nil {
-		log.Printf("Failed to get today's data: %v", err)
-		message = fmt.Sprintf("请输入工作内容 (当前时间: %s):", now.Format("15:04"))
-	} else {
-		message = s.buildDialogMessage(now, todayData)
-	}
-
-	content, ok, err := s.dialog.ShowInput(title, message, "")
-	if err != nil {
-		log.Printf("Failed to show dialog: %v", err)
-		return
-	}
-
-	if !ok || content == "" {
-		log.Println("User cancelled or input is empty, skipping this entry")
-		return
-	}
-
-	// 保存工作记录
-	entry := models.WorkEntry{
-		Timestamp: now,
-		Content:   content,
-	}
-
-	if err := s.storage.SaveEntry(entry); err != nil {
-		log.Printf("Failed to save entry: %v", err)
-		return
-	}
-
-	log.Printf("Work entry saved: %s", content)
-}
-
-// buildDialogMessage 构建弹窗消息
-func (s *Scheduler) buildDialogMessage(now time.Time, todayData *models.DailyData) string {
-	currentTime := now.Format("15:04")
-
-	if len(todayData.Entries) == 0 {
-		return fmt.Sprintf("📝 当前时间: %s\n\n═════════════════════\n\n今日暂无记录\n\n═════════════════════\n\n请输入当前工作内容:", currentTime)
-	}
-
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("📝 当前时间: %s\n\n", currentTime))
-	builder.WriteString("═════════════════════\n\n")
-	builder.WriteString("今日已记录：\n\n")
-
-	for _, entry := range todayData.Entries {
-		entryTime := entry.Timestamp.Format("15:04")
-		builder.WriteString(fmt.Sprintf("  ▸ %s    %s\n", entryTime, entry.Content))
-	}
-
-	builder.WriteString("\n═════════════════════\n\n")
-	builder.WriteString("请输入当前工作内容:")
-	return builder.String()
-}
-
-// runDailySummaryTask 每日总结任务（支持 at least once 语义）
-func (s *Scheduler) runDailySummaryTask() {
-	// 解析总结时间（格式: "HH:MM"）
-	summaryHour, summaryMin := parseSummaryTime(s.config.SummaryTime)
-
-	for {
-		now := time.Now()
-		yesterday := now.AddDate(0, 0, -1)
-		
-		// 检查昨天是否已生成总结
-		yesterdayData, err := s.storage.GetDailyData(yesterday)
-		if err == nil && !yesterdayData.SummaryGenerated {
-			// 昨天未生成总结，检查是否已过配置时间
-			todaySummaryTime := time.Date(now.Year(), now.Month(), now.Day(), 
-				summaryHour, summaryMin, 0, 0, now.Location())
-			
-			if now.After(todaySummaryTime) {
-				// 已过配置时间，立即生成昨天的总结
-				log.Printf("Missed scheduled time %s, generating summary immediately", 
-					todaySummaryTime.Format("15:04"))
-				s.generateSummary()
-				// 生成后继续计算下一次时间
-			}
-		}
-
-		// 计算下一个总结时间
-		nextSummary := time.Date(now.Year(), now.Month(), now.Day(), summaryHour, summaryMin, 0, 0, now.Location())
-
-		// 如果今天的时间已经过了，则等到明天
-		if now.After(nextSummary) {
-			nextSummary = nextSummary.Add(24 * time.Hour)
-		}
-
-		// 等待到总结时间
-		waitDuration := time.Until(nextSummary)
-		log.Printf("Next summary generation at: %s (in %s)", nextSummary.Format("2006-01-02 15:04:05"), waitDuration)
-
-		select {
-		case <-time.After(waitDuration):
-			s.generateSummary()
-
-		case <-s.summaryResetCh:
-			// 收到唤醒信号，重新计算下一次时间
-			log.Println("Summary task received wake-up signal, recalculating next time...")
-			continue
-
-		case <-s.stopCh:
-			return
-		}
-	}
-}
-
-// generateSummary 生成前一天的工作总结
-func (s *Scheduler) generateSummary() {
-	// 生成前一天的总结
-	yesterday := time.Now().AddDate(0, 0, -1)
-
-	log.Printf("Generating summary for %s", yesterday.Format("2006-01-02"))
-
-	if err := s.generator.GenerateDailySummary(yesterday); err != nil {
-		log.Printf("Failed to generate summary: %v", err)
-		return
-	}
-
-	// 标记总结已生成
-	if err := s.storage.MarkSummaryGenerated(yesterday); err != nil {
-		log.Printf("Failed to mark summary as generated: %v", err)
-		// 不返回错误，因为总结已经成功生成
-	}
-
-	log.Printf("Summary generated successfully for %s", yesterday.Format("2006-01-02"))
-}
-
-// parseSummaryTime 解析总结时间
-func parseSummaryTime(timeStr string) (hour, min int) {
-	// 默认 00:00
-	hour, min = 0, 0
-	fmt.Sscanf(timeStr, "%d:%d", &hour, &min)
-	return
-}
-
-// watchResetSignal 监控重置信号文件
-func (s *Scheduler) watchResetSignal() {
-	ticker := time.NewTicker(1 * time.Second) // 每秒检查一次
+// runScheduler 调度循环
+func (s *Scheduler) runScheduler() {
+	ticker := time.NewTicker(s.checkInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if s.checkAndClearResetSignal() {
-				// 非阻塞发送重置信号
-				select {
-				case s.resetCh <- struct{}{}:
-					log.Println("Reset signal sent to hourly task")
-				default:
-					// 通道已满，说明已有待处理的重置信号
-				}
-			}
+			s.checkAndRunTasks()
+
 		case <-s.stopCh:
+			log.Println("Scheduler main loop exiting")
 			return
 		}
 	}
 }
 
-// checkAndClearResetSignal 检查并清除重置信号文件
-func (s *Scheduler) checkAndClearResetSignal() bool {
-	signalFile := s.getResetSignalPath()
+// checkAndRunTasks 检查并执行所有到期的任务
+func (s *Scheduler) checkAndRunTasks() {
+	now := time.Now()
+	configs := s.registry.GetAllTasks()
 
-	// 检查文件是否存在
-	if _, err := os.Stat(signalFile); os.IsNotExist(err) {
-		return false
-	}
+	for _, config := range configs {
+		if !config.Enabled {
+			continue
+		}
 
-	// 删除信号文件
-	if err := os.Remove(signalFile); err != nil {
-		log.Printf("Failed to remove reset signal file: %v", err)
-		return false
-	}
+		// 第一段判断：基于 NextRun 的粗粒度时间检查
+		if !config.NextRun.IsZero() && now.Before(config.NextRun) {
+			continue
+		}
 
-	return true
-}
+		// 获取任务实例
+		task, exists := s.tasks[config.ID]
+		if !exists {
+			log.Printf("Warning: task %s not registered", config.ID)
+			continue
+		}
 
-// getResetSignalPath 获取重置信号文件路径
-func (s *Scheduler) getResetSignalPath() string {
-	// 使用 dataDir 的父目录（run 目录）
-	runDir := filepath.Dir(s.config.DataDir)
-	return filepath.Join(runDir, ".reset_signal")
-}
+		// 第二段判断：任务的细粒度业务逻辑检查
+		if !task.ShouldRun(now, config) {
+			continue
+		}
 
-// monitorHeartbeat 心跳监控，检测系统睡眠/唤醒
-func (s *Scheduler) monitorHeartbeat() {
-	ticker := time.NewTicker(10 * time.Second) // 每 10 秒心跳
-	defer ticker.Stop()
+		// 执行任务
+		log.Printf("Executing task: %s (%s)", task.ID(), task.Name())
+		err := task.Execute()
 
-	log.Println("Heartbeat monitor started (interval: 10s, threshold: 20s)")
+		// 回调处理（更新配置）
+		task.OnExecuted(now, config, err)
 
-	for {
-		select {
-		case <-ticker.C:
-			// 使用当前墙上时间，而不是 ticker 的时间
-			// 因为系统睡眠时 ticker 会暂停，唤醒后继续，无法检测到时间跳变
-			now := time.Now()
+		// 保存更新后的配置
+		if err := s.registry.UpdateTask(config); err != nil {
+			log.Printf("Failed to update task config: %v", err)
+		}
 
-			s.heartbeatMu.Lock()
-			elapsed := now.Sub(s.lastHeartbeat)
-			s.lastHeartbeat = now
-			s.heartbeatMu.Unlock()
-
-			// 如果间隔超过 20 秒，判定为系统从睡眠中唤醒
-			if elapsed > 20*time.Second {
-				log.Printf("=== System wake-up detected! ===")
-				log.Printf("Last heartbeat: %s ago (threshold: 20s)", elapsed)
-				s.handleWakeUp(elapsed)
-			}
-
-		case <-s.stopCh:
-			log.Println("Heartbeat monitor stopped")
-			return
+		// 保存注册表到文件
+		if err := s.registry.Save(); err != nil {
+			log.Printf("Failed to save task registry: %v", err)
 		}
 	}
 }
 
-// handleWakeUp 处理系统唤醒事件
-func (s *Scheduler) handleWakeUp(sleepDuration time.Duration) {
-	log.Printf("Handling system wake-up (sleep duration: %s)...", sleepDuration)
-
-	// 1. 重置 hourly task
-	select {
-	case s.resetCh <- struct{}{}:
-		log.Println("✓ Hourly task reset signal sent")
-	default:
-		log.Println("⚠ Hourly task reset channel full, signal already pending")
-	}
-
-	// 2. 重置 daily summary task
-	select {
-	case s.summaryResetCh <- struct{}{}:
-		log.Println("✓ Summary task reset signal sent")
-	default:
-		log.Println("⚠ Summary task reset channel full, signal already pending")
-	}
-
-	// 3. 记录唤醒事件
-	if sleepDuration > time.Hour {
-		log.Printf("Long sleep detected (%s), timers have been reset", sleepDuration)
-	}
-
-	log.Println("=== Wake-up handling completed ===")
+// GetRegistry 获取任务注册表（用于外部访问）
+func (s *Scheduler) GetRegistry() *Registry {
+	return s.registry
 }
