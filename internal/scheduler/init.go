@@ -43,7 +43,7 @@ func (s *Scheduler) InitializeTasksFromConfig(
 		reminderTask.Name, intervalMinutes, nextReminderTime.Format("15:04:05"))
 
 	// 创建每日总结任务配置
-	nextSummaryTime := calculateNextSummaryTime(now, summaryTime)
+	nextSummaryTime := CalculateNextSummaryTime(now, summaryTime)
 
 	summaryTask := &TaskConfig{
 		ID:      "daily-summary",
@@ -114,8 +114,8 @@ func calculateNextReminderTime(from time.Time, intervalMinutes int) time.Time {
 	return next
 }
 
-// calculateNextSummaryTime 计算下次总结时间
-func calculateNextSummaryTime(from time.Time, summaryTime string) time.Time {
+// CalculateNextSummaryTime 计算下次总结时间（导出函数，供 tasks 包调用）
+func CalculateNextSummaryTime(from time.Time, summaryTime string) time.Time {
 	// 解析总结时间
 	var hour, minute int
 	if _, err := fmt.Sscanf(summaryTime, "%d:%d", &hour, &minute); err != nil {

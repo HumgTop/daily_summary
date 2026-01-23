@@ -117,10 +117,9 @@ func (t *SummaryTask) OnExecuted(now time.Time, config *scheduler.TaskConfig, er
 		config.Data["last_generated_date"] = today
 	}
 
-	// 计算明天的总结时间作为下次执行时间
-	tomorrowSummaryTime := time.Date(now.Year(), now.Month(), now.Day()+1,
-		t.hour, t.minute, 0, 0, now.Location())
-	config.NextRun = tomorrowSummaryTime
+	// 计算下次执行时间（复用与初始化时相同的逻辑）
+	summaryTime := fmt.Sprintf("%d:%d", t.hour, t.minute)
+	config.NextRun = scheduler.CalculateNextSummaryTime(now, summaryTime)
 }
 
 // parseSummaryTime 解析总结时间
