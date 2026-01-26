@@ -74,20 +74,20 @@ func (t *ReminderTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (b
 
 // Execute 执行任务
 func (t *ReminderTask) Execute() error {
-	now := time.Now()
+	startTime := time.Now()
 	title := "工作记录"
 
 	// 获取今日所有记录
-	todayData, err := t.storage.GetDailyData(now)
+	todayData, err := t.storage.GetDailyData(startTime)
 	var message string
 	if err != nil {
 		log.Printf("Failed to get today's data: %v", err)
-		message = fmt.Sprintf("请输入工作内容 (当前时间: %s):", now.Format("15:04"))
+		message = fmt.Sprintf("请输入工作内容 (当前时间: %s):", startTime.Format("15:04"))
 	} else {
-		message = t.buildDialogMessage(now, todayData)
+		message = t.buildDialogMessage(startTime, todayData)
 	}
 
-	// 显示对话框
+	// 显示对话框（这会阻塞等待用户输入）
 	content, ok, err := t.dialog.ShowInput(title, message, "")
 	if err != nil {
 		return fmt.Errorf("failed to show dialog: %w", err)
@@ -97,6 +97,9 @@ func (t *ReminderTask) Execute() error {
 		log.Println("User cancelled or input is empty, skipping this entry")
 		return nil
 	}
+
+	// 用户完成输入后，重新获取当前时间作为记录时间
+	now := time.Now()
 
 	// 保存工作记录
 	entry := models.WorkEntry{

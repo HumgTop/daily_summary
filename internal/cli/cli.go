@@ -68,16 +68,16 @@ func RunList(store storage.Storage) error {
 
 // RunPopup 显示对话框让用户输入工作记录
 func RunPopup(store storage.Storage, dlg dialog.Dialog, dataDir string) error {
-	now := time.Now()
+	startTime := time.Now()
 
 	// 获取今日所有记录
-	todayData, err := store.GetDailyData(now)
+	todayData, err := store.GetDailyData(startTime)
 	if err != nil {
 		return fmt.Errorf("failed to get today's data: %w", err)
 	}
 
 	// 构建对话框消息
-	message := buildDialogMessage(now, todayData)
+	message := buildDialogMessage(startTime, todayData)
 
 	// 显示对话框
 	content, ok, err := dlg.ShowInput("工作记录", message, "")
@@ -89,6 +89,9 @@ func RunPopup(store storage.Storage, dlg dialog.Dialog, dataDir string) error {
 		fmt.Println("已取消或未输入内容")
 		return nil
 	}
+
+	// 用户完成输入后，重新获取当前时间作为记录时间
+	now := time.Now()
 
 	// 保存工作记录
 	entry := models.WorkEntry{
@@ -104,6 +107,7 @@ func RunPopup(store storage.Storage, dlg dialog.Dialog, dataDir string) error {
 	fmt.Printf("✓ 已记录：%s (%s)\n", content, now.Format("15:04"))
 
 	// 更新任务调度（重新计算下次提醒时间）
+	// 使用完成输入的时间，而不是弹窗启动的时间
 	if err := updateTaskSchedule(dataDir, now); err != nil {
 		// 更新失败不影响主流程，只记录日志
 		log.Printf("Failed to update task schedule: %v", err)
