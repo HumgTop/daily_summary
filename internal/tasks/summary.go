@@ -55,8 +55,10 @@ func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bo
 		return false, nil
 	}
 
-	// 获取今天之前所有未生成日报的日期
-	ungeneratedDates, err := t.storage.GetUngeneratedDates(now)
+	// 获取今天之前所有未生成日报的日期（不包括今天）
+	// 传入今天的开始时间（00:00:00），确保只检查今天之前的日期
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	ungeneratedDates, err := t.storage.GetUngeneratedDates(today)
 	if err != nil {
 		log.Printf("SummaryTask: failed to get ungenerated dates: %v", err)
 		return false, nil
