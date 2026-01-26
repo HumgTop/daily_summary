@@ -41,4 +41,9 @@ type Config struct {
 	EnableLogging        bool   `yaml:"enable_logging" json:"enable_logging"`                           // 是否启用日志
 	LogFile              string `yaml:"log_file" json:"log_file"`                                       // 日志文件路径（绝对路径）
 	MaxLogSizeMB         int    `yaml:"max_log_size_mb" json:"max_log_size_mb"`                         // 日志文件最大大小（MB，0表示不限制，应用于app.log和scheduler_check.log）
+
+	// 周度总结配置
+	EnableWeeklySummary  bool   `yaml:"enable_weekly_summary" json:"enable_weekly_summary"`             // 是否启用周度总结（默认 false）
+	WeeklySummaryTime    string `yaml:"weekly_summary_time" json:"weekly_summary_time"`                 // 周度总结时间，格式 "HH:MM"（默认 "09:00"）
+	WeeklySummaryDay     int    `yaml:"weekly_summary_day" json:"weekly_summary_day"`                   // 周度总结星期几，1=周一...7=周日（默认 1）
 }

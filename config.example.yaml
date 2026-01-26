@@ -57,3 +57,10 @@ dialog_timeout: 300
 # true = 启用，日志将写入 ./run/logs/app.log
 # false = 禁用，日志只输出到 stdout
 enable_logging: true
+
+# 周度总结配置（可选）
+# 启用后，将在每周指定的日期和时间自动生成上周的总结
+# 周度总结基于每日总结文件聚合生成
+enable_weekly_summary: false       # 是否启用周度总结（默认：false）
+weekly_summary_time: "11:00"       # 周度总结时间（24小时制，格式：HH:MM，默认：09:00）
+weekly_summary_day: 1              # 周几生成：1=周一, 2=周二, ..., 7=周日（默认：1=周一）

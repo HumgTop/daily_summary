@@ -24,7 +24,9 @@
       "Bash(kill:*)",
       "Bash(pgrep:*)",
       "Bash(pkill:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)"
     ],
     "additionalDirectories": [
       "/tmp",

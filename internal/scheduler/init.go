@@ -12,6 +12,9 @@ func (s *Scheduler) InitializeTasksFromConfig(
 	hourlyInterval int,
 	minuteInterval int,
 	summaryTime string,
+	enableWeeklySummary bool,
+	weeklySummaryTime string,
+	weeklySummaryDay int,
 ) error {
 	// 每次启动时都根据配置重新初始化任务，确保配置与代码保持一致
 	log.Println("Initializing tasks from config...")
@@ -79,6 +82,30 @@ func (s *Scheduler) InitializeTasksFromConfig(
 	log.Printf("Initialized task: %s (interval: 3 hours, next run: %s)",
 		logRotateTask.Name, nextLogRotateTime.Format("2006-01-02 15:04:05"))
 
+	// 创建周度总结任务配置（如果启用）
+	if enableWeeklySummary {
+		nextWeeklySummaryTime := calculateNextWeeklySummaryTime(now, weeklySummaryDay, weeklySummaryTime)
+
+		weeklySummaryTask := &TaskConfig{
+			ID:      "weekly-summary",
+			Name:    "周度总结生成",
+			Type:    TaskTypeDaily,
+			Enabled: true,
+			Time:    weeklySummaryTime,
+			NextRun: nextWeeklySummaryTime,
+			Data: map[string]interface{}{
+				"weekday": weeklySummaryDay,
+			},
+		}
+
+		if err := s.upsertTask(weeklySummaryTask); err != nil {
+			return err
+		}
+		log.Printf("Initialized task: %s (weekday: %d, time: %s, next run: %s)",
+			weeklySummaryTask.Name, weeklySummaryDay, weeklySummaryTime,
+			nextWeeklySummaryTime.Format("2006-01-02 15:04:05"))
+	}
+
 	// 所有任务已通过 upsertTask 自动保存到文件
 	log.Println("Tasks initialized and saved to registry")
 	return nil
@@ -138,4 +165,41 @@ func CalculateNextSummaryTime(from time.Time, summaryTime string) time.Time {
 
 	// 否则返回今天的总结时间
 	return todaySummaryTime
+}
+
+// calculateNextWeeklySummaryTime 计算下次周度总结时间
+func calculateNextWeeklySummaryTime(from time.Time, weekday int, summaryTime string) time.Time {
+	// 解析时间
+	var hour, minute int
+	if _, err := fmt.Sscanf(summaryTime, "%d:%d", &hour, &minute); err != nil {
+		hour, minute = 9, 0 // 默认 09:00
+	}
+
+	// 转换 weekday（1-7）到 Go 的 Weekday（0-6）
+	var targetWeekday time.Weekday
+	if weekday == 7 {
+		targetWeekday = time.Sunday
+	} else {
+		targetWeekday = time.Weekday(weekday)
+	}
+
+	// 计算距离目标星期几还有几天
+	daysUntil := int(targetWeekday - from.Weekday())
+	if daysUntil < 0 {
+		daysUntil += 7
+	}
+
+	// 构造目标日期和时间
+	targetDate := from.AddDate(0, 0, daysUntil)
+	targetTime := time.Date(
+		targetDate.Year(), targetDate.Month(), targetDate.Day(),
+		hour, minute, 0, 0, targetDate.Location(),
+	)
+
+	// 如果目标时间已过（今天是目标星期几但时间已过），跳到下周
+	if !targetTime.After(from) {
+		targetTime = targetTime.AddDate(0, 0, 7)
+	}
+
+	return targetTime
 }

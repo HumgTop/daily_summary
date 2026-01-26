@@ -70,3 +70,10 @@ log_file: run/logs/app.log
 # 此配置同时应用于主应用日志（app.log）和调度器检查日志（scheduler_check.log）
 # 设置为 0 表示不限制大小
 max_log_size_mb: 10
+
+# 周度总结配置
+# 启用后，将在每周指定的日期和时间自动生成上周的总结
+# 周度总结基于每日总结文件聚合生成
+enable_weekly_summary: true        # 启用周度总结
+weekly_summary_time: "11:00"       # 每周一 11:00 生成
+weekly_summary_day: 1              # 1=周一, 2=周二, ..., 7=周日

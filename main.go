@@ -71,6 +71,8 @@ func main() {
 		runListWithConfig(*configPath)
 	case "summary":
 		runSummaryWithConfig(*configPath, os.Args[subcommandIndex+1:])
+	case "weekly":
+		runWeeklySummaryWithConfig(*configPath, os.Args[subcommandIndex+1:])
 	case "help", "-h", "--help":
 		printHelp()
 	default:
@@ -174,6 +176,18 @@ func runServeWithConfig(configPath string) {
 	summaryTask := tasks.NewSummaryTask(store, gen, cfg.SummaryTime)
 	sched.RegisterTask(summaryTask)
 
+	// 创建周度总结任务（如果启用）
+	if cfg.EnableWeeklySummary {
+		weeklyTask := tasks.NewWeeklySummaryTask(
+			store,
+			gen,
+			cfg.WeeklySummaryDay,
+			cfg.WeeklySummaryTime,
+		)
+		sched.RegisterTask(weeklyTask)
+		log.Println("Registered weekly summary task")
+	}
+
 	// 注册日志轮转任务（每3小时检查一次）
 	if cfg.MaxLogSizeMB > 0 {
 		logFile := cfg.LogFile
@@ -194,7 +208,14 @@ func runServeWithConfig(configPath string) {
 	if intervalMinutes == 0 {
 		intervalMinutes = cfg.HourlyInterval * 60
 	}
-	if err := sched.InitializeTasksFromConfig(cfg.HourlyInterval, cfg.MinuteInterval, cfg.SummaryTime); err != nil {
+	if err := sched.InitializeTasksFromConfig(
+		cfg.HourlyInterval,
+		cfg.MinuteInterval,
+		cfg.SummaryTime,
+		cfg.EnableWeeklySummary,
+		cfg.WeeklySummaryTime,
+		cfg.WeeklySummaryDay,
+	); err != nil {
 		log.Fatalf("Failed to initialize tasks: %v", err)
 	}
 
@@ -413,9 +434,115 @@ func runSummaryWithConfig(configPath string, args []string) {
 		// 不终止程序，因为总结已经成功生成
 	}
 
-	// 构建总结文件路径
-	summaryPath := filepath.Join(cfg.SummaryDir, targetDate.Format("2006-01-02")+".md")
+	// 构建总结文件路径（日报存放在 summaries/daily/ 子目录）
+	summaryPath := filepath.Join(cfg.SummaryDir, "daily", targetDate.Format("2006-01-02")+".md")
 	fmt.Printf("✓ 总结已生成并保存到: %s\n", summaryPath)
+}
+
+// runWeeklySummaryWithConfig 手动生成周度总结
+func runWeeklySummaryWithConfig(configPath string, args []string) {
+	// 解析子命令参数
+	summaryFlags := flag.NewFlagSet("weekly", flag.ExitOnError)
+	dateStr := summaryFlags.String("date", "", "周末日期（周日，格式：YYYY-MM-DD，默认为上周日）")
+	summaryFlags.Parse(args)
+
+	// 加载配置
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 设置日志
+	if cfg.EnableLogging {
+		logFile := cfg.LogFile
+		if logFile == "" {
+			logFile = filepath.Join("run", "logs", "app.log")
+		}
+		os.MkdirAll(filepath.Dir(logFile), 0755)
+		setupLogging(logFile, cfg.MaxLogSizeMB)
+	}
+
+	// 确定周末日期（周日）
+	var weekEndDate time.Time
+	if *dateStr == "" {
+		// 默认：上周日
+		now := time.Now()
+		daysFromLastSunday := int(now.Weekday())
+		if daysFromLastSunday == 0 {
+			// 今天是周日，上周日 = 今天 - 7 天
+			daysFromLastSunday = 7
+		}
+		weekEndDate = now.AddDate(0, 0, -daysFromLastSunday)
+	} else {
+		weekEndDate, err = time.Parse("2006-01-02", *dateStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: 无效的日期格式，应为 YYYY-MM-DD\n")
+			os.Exit(1)
+		}
+	}
+
+	// 初始化存储
+	store := storage.NewJSONStorage(cfg.DataDir, cfg.SummaryDir)
+
+	// 创建 AI 客户端
+	var aiClient summary.AIClient
+	if cfg.AIProvider == "" || cfg.AIProvider == "codex" {
+		codexPath := cfg.CodexPath
+		if codexPath == "" {
+			codexPath = "codex"
+		}
+		aiClient, err = summary.NewCodexClient(codexPath, cfg.WorkDir)
+		if err != nil {
+			log.Fatalf("Failed to create Codex client: %v", err)
+		}
+	} else if cfg.AIProvider == "claude" {
+		var claudeClient *summary.ClaudeClient
+		claudeClient, err = summary.NewClaudeClient(cfg.ClaudeCodePath)
+		if err != nil {
+			log.Fatalf("Failed to create Claude client: %v", err)
+		}
+		aiClient = claudeClient
+	} else if cfg.AIProvider == "coco" {
+		cocoPath := cfg.CocoPath
+		if cocoPath == "" {
+			cocoPath = "coco"
+		}
+		aiClient, err = summary.NewCocoClient(cocoPath, cfg.WorkDir)
+		if err != nil {
+			log.Fatalf("Failed to create Coco client: %v", err)
+		}
+	} else {
+		log.Fatalf("Unknown AI provider: %s (supported: codex, claude, coco)", cfg.AIProvider)
+	}
+
+	// 创建对话框用于发送通知
+	dialogTimeout := time.Duration(cfg.DialogTimeout) * time.Second
+	dlg := dialog.NewOSAScriptDialog(dialogTimeout)
+
+	// 创建生成器
+	gen := summary.NewGenerator(store, aiClient, dlg)
+
+	// 计算周开始日期
+	weekStartDate := weekEndDate.AddDate(0, 0, -6)
+
+	// 生成周度总结
+	fmt.Printf("正在生成周报（%s 至 %s）...\n",
+		weekStartDate.Format("2006-01-02"),
+		weekEndDate.Format("2006-01-02"))
+
+	if err := gen.GenerateWeeklySummary(weekEndDate); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: 生成周报失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 构建总结文件路径（周报存放在 summaries/weekly/ 子目录）
+	filename := fmt.Sprintf("weekly-%s.md", weekEndDate.Format("2006-01-02"))
+	summaryPath := filepath.Join(cfg.SummaryDir, "weekly", filename)
+
+	fmt.Printf("✓ 周报已生成并保存到: %s\n", summaryPath)
+	fmt.Printf("  周期: %s 至 %s\n",
+		weekStartDate.Format("2006-01-02"),
+		weekEndDate.Format("2006-01-02"))
 }
 
 // printHelp 打印帮助信息
@@ -431,6 +558,7 @@ func printHelp() {
   popup            弹窗输入工作记录（与定时弹窗相同）
   list             查看今日记录
   summary [--date] 生成工作总结
+  weekly [--date]  生成周度总结（基于每日总结）
   help             显示此帮助信息
 
 全局选项:
@@ -444,6 +572,8 @@ func printHelp() {
   daily_summary list                               # 查看今日记录
   daily_summary summary                            # 生成今日总结
   daily_summary summary --date 2026-01-19          # 生成指定日期的总结
+  daily_summary weekly                             # 生成上周的周报
+  daily_summary weekly --date 2026-01-26           # 生成指定周末日期的周报
   daily_summary --config ~/my-config.yaml          # 使用自定义配置启动服务
 
 说明:

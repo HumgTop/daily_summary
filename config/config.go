@@ -22,6 +22,9 @@ func DefaultConfig() *models.Config {
 		ClaudeCodePath:       "claude-code",
 		DialogTimeout:        300, // 5分钟
 		EnableLogging:        true,
+		EnableWeeklySummary:  false,
+		WeeklySummaryTime:    "09:00",
+		WeeklySummaryDay:     1, // 周一
 	}
 }
 

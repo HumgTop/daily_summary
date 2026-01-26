@@ -129,8 +129,16 @@ func (s *JSONStorage) getDailyDataQuiet(date time.Time) *models.DailyData {
 
 // SaveSummary 保存总结
 func (s *JSONStorage) SaveSummary(date time.Time, summary string, metadata models.SummaryMetadata) error {
+	// 日报目录：summaryDir/daily
+	dailyDir := filepath.Join(s.summaryDir, "daily")
+
+	// 确保日报目录存在
+	if err := os.MkdirAll(dailyDir, 0755); err != nil {
+		return fmt.Errorf("create daily directory: %w", err)
+	}
+
 	dateStr := date.Format("2006-01-02")
-	filePath := filepath.Join(s.summaryDir, fmt.Sprintf("%s.md", dateStr))
+	filePath := filepath.Join(dailyDir, fmt.Sprintf("%s.md", dateStr))
 
 	// 构建 Markdown 内容
 	content := fmt.Sprintf(`# 工作总结 - %s
@@ -158,7 +166,7 @@ func (s *JSONStorage) SaveSummary(date time.Time, summary string, metadata model
 // GetSummary 获取总结
 func (s *JSONStorage) GetSummary(date time.Time) (string, error) {
 	dateStr := date.Format("2006-01-02")
-	filePath := filepath.Join(s.summaryDir, fmt.Sprintf("%s.md", dateStr))
+	filePath := filepath.Join(s.summaryDir, "daily", fmt.Sprintf("%s.md", dateStr))
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -203,6 +211,72 @@ func (s *JSONStorage) MarkSummaryGenerated(date time.Time) error {
 
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("write daily data file: %w", err)
+	}
+
+	return nil
+}
+
+// GetDailySummariesInRange 获取日期范围内的每日总结
+func (s *JSONStorage) GetDailySummariesInRange(startDate, endDate time.Time) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// 遍历日期范围
+	current := startDate
+	for !current.After(endDate) {
+		dateStr := current.Format("2006-01-02")
+
+		// 尝试读取该日期的总结文件
+		summary, err := s.GetSummary(current)
+		if err == nil && summary != "" {
+			result[dateStr] = summary
+		}
+		// 如果读取失败或为空，跳过该天
+
+		current = current.AddDate(0, 0, 1)
+	}
+
+	return result, nil
+}
+
+// SaveWeeklySummary 保存周度总结
+func (s *JSONStorage) SaveWeeklySummary(weekEndDate time.Time, summary string, metadata models.SummaryMetadata) error {
+	// 周报目录：summaryDir/weekly
+	weeklyDir := filepath.Join(s.summaryDir, "weekly")
+
+	// 确保周报目录存在
+	if err := os.MkdirAll(weeklyDir, 0755); err != nil {
+		return fmt.Errorf("create weekly directory: %w", err)
+	}
+
+	// 文件名：weekly-YYYY-MM-DD.md（周日日期）
+	dateStr := weekEndDate.Format("2006-01-02")
+	filename := fmt.Sprintf("weekly-%s.md", dateStr)
+	filePath := filepath.Join(weeklyDir, filename)
+
+	// 计算周开始日期（周一）
+	weekStartDate := weekEndDate.AddDate(0, 0, -6)
+
+	// 构建文件内容（与每日总结格式类似）
+	content := fmt.Sprintf(`# 周报 - %s
+
+生成时间: %s
+周期: %s 至 %s
+每日总结条数: %d
+
+---
+
+%s
+`,
+		dateStr,
+		metadata.GeneratedAt.Format("2006-01-02 15:04:05"),
+		weekStartDate.Format("2006-01-02"),
+		dateStr,
+		metadata.EntryCount,
+		summary,
+	)
+
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write weekly summary file: %w", err)
 	}
 
 	return nil

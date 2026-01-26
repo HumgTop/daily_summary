@@ -25,4 +25,11 @@ type Storage interface {
 
 	// MarkSummaryGenerated 标记指定日期的总结已生成
 	MarkSummaryGenerated(date time.Time) error
+
+	// GetDailySummariesInRange 获取日期范围内的每日总结
+	// 返回 map[string]string，key 为日期（YYYY-MM-DD），value 为总结内容
+	GetDailySummariesInRange(startDate, endDate time.Time) (map[string]string, error)
+
+	// SaveWeeklySummary 保存周度总结
+	SaveWeeklySummary(weekEndDate time.Time, summary string, metadata models.SummaryMetadata) error
 }
