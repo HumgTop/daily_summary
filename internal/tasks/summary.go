@@ -12,10 +12,11 @@ import (
 
 // SummaryTask 每日总结生成任务
 type SummaryTask struct {
-	storage   storage.Storage
-	generator *summary.Generator
-	hour      int // 执行时间（小时）
-	minute    int // 执行时间（分钟）
+	storage           storage.Storage
+	generator         *summary.Generator
+	hour              int       // 执行时间（小时）
+	minute            int       // 执行时间（分钟）
+	ungeneratedDates  []time.Time // 待生成日报的日期列表（临时字段，由 ShouldRun 设置，Execute 使用）
 }
 
 // NewSummaryTask 创建每日总结任务
@@ -45,16 +46,6 @@ func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bo
 		return false, nil
 	}
 
-	// 今天的日期
-	today := now.Format("2006-01-02")
-
-	// 检查今天是否已经生成过
-	if lastDate, ok := config.Data["last_generated_date"].(string); ok {
-		if lastDate == today {
-			return false, nil
-		}
-	}
-
 	// 构造今天的总结时间点
 	todaySummaryTime := time.Date(now.Year(), now.Month(), now.Day(),
 		t.hour, t.minute, 0, 0, now.Location())
@@ -64,42 +55,83 @@ func (t *SummaryTask) ShouldRun(now time.Time, config *scheduler.TaskConfig) (bo
 		return false, nil
 	}
 
-	// 检查昨天是否有记录且未生成总结
-	yesterday := now.AddDate(0, 0, -1)
-	yesterdayData, err := t.storage.GetDailyData(yesterday)
+	// 获取今天之前所有未生成日报的日期
+	ungeneratedDates, err := t.storage.GetUngeneratedDates(now)
 	if err != nil {
-		// 获取数据失败，记录日志并跳过
+		log.Printf("SummaryTask: failed to get ungenerated dates: %v", err)
 		return false, nil
 	}
 
-	// 如果昨天没有数据，记录日志并跳过
-	if len(yesterdayData.Entries) == 0 {
-		log.Printf("SummaryTask: skipped, no entries for %s", yesterday.Format("2006-01-02"))
-		return false, nil
+	// 如果没有未生成的日报,顺延到明天的总结时间
+	if len(ungeneratedDates) == 0 {
+		log.Printf("SummaryTask: no ungenerated summaries, delaying to next day")
+
+		// 计算下一次执行时间（明天的总结时间）
+		tomorrowSummaryTime := time.Date(now.Year(), now.Month(), now.Day()+1,
+			t.hour, t.minute, 0, 0, now.Location())
+
+		// 返回更新函数，顺延 NextRun
+		return false, func(cfg *scheduler.TaskConfig) {
+			cfg.NextRun = tomorrowSummaryTime
+		}
 	}
 
-	// 如果昨天有记录且未生成总结，返回 true
-	return !yesterdayData.SummaryGenerated, nil
+	// 存储未生成的日期列表到临时字段，供 Execute 使用
+	t.ungeneratedDates = ungeneratedDates
+
+	log.Printf("SummaryTask: found %d ungenerated summaries, will generate", len(ungeneratedDates))
+	return true, nil
 }
 
 // Execute 执行任务
 func (t *SummaryTask) Execute() error {
-	// 生成前一天的总结
-	yesterday := time.Now().AddDate(0, 0, -1)
-
-	log.Printf("Generating summary for %s", yesterday.Format("2006-01-02"))
-
-	if err := t.generator.GenerateDailySummary(yesterday); err != nil {
-		return fmt.Errorf("failed to generate summary: %w", err)
+	// 从临时字段读取未生成的日期列表
+	if len(t.ungeneratedDates) == 0 {
+		log.Printf("SummaryTask.Execute: no dates to generate (this should not happen)")
+		return nil
 	}
 
-	// 标记总结已生成
-	if err := t.storage.MarkSummaryGenerated(yesterday); err != nil {
-		log.Printf("Failed to mark summary as generated: %v", err)
-		// 不返回错误，因为总结已经成功生成
+	totalDates := len(t.ungeneratedDates)
+	log.Printf("SummaryTask: generating summaries for %d dates", totalDates)
+
+	// 批量生成所有未生成的日报
+	var generatedCount int
+	var lastError error
+
+	for _, date := range t.ungeneratedDates {
+		dateStr := date.Format("2006-01-02")
+		log.Printf("Generating summary for %s", dateStr)
+
+		if err := t.generator.GenerateDailySummary(date); err != nil {
+			log.Printf("Failed to generate summary for %s: %v", dateStr, err)
+			lastError = err
+			continue // 继续生成其他日期的日报
+		}
+
+		// 标记总结已生成
+		if err := t.storage.MarkSummaryGenerated(date); err != nil {
+			log.Printf("Failed to mark summary as generated for %s: %v", dateStr, err)
+			// 不返回错误，因为总结已经成功生成
+		}
+
+		generatedCount++
+		log.Printf("Summary generated successfully for %s (%d/%d)",
+			dateStr, generatedCount, totalDates)
 	}
 
-	log.Printf("Summary generated successfully for %s", yesterday.Format("2006-01-02"))
+	// 清空临时字段
+	t.ungeneratedDates = nil
+
+	if generatedCount == 0 {
+		return fmt.Errorf("failed to generate any summaries: %w", lastError)
+	}
+
+	if lastError != nil {
+		log.Printf("Warning: some summaries failed to generate (succeeded: %d, failed: %d)",
+			generatedCount, totalDates-generatedCount)
+	}
+
+	log.Printf("SummaryTask: batch generation completed (generated: %d)", generatedCount)
 	return nil
 }
 
@@ -114,18 +146,14 @@ func (t *SummaryTask) OnExecuted(now time.Time, config *scheduler.TaskConfig, er
 	} else {
 		config.LastSuccess = now
 		config.LastError = ""
-
-		// 更新最后生成日期
-		today := now.Format("2006-01-02")
-		if config.Data == nil {
-			config.Data = make(map[string]interface{})
-		}
-		config.Data["last_generated_date"] = today
 	}
 
-	// 计算下次执行时间（复用与初始化时相同的逻辑）
-	summaryTime := fmt.Sprintf("%d:%d", t.hour, t.minute)
-	config.NextRun = scheduler.CalculateNextSummaryTime(now, summaryTime)
+	// 计算下次执行时间（明天的总结时间）
+	tomorrowSummaryTime := time.Date(now.Year(), now.Month(), now.Day()+1,
+		t.hour, t.minute, 0, 0, now.Location())
+	config.NextRun = tomorrowSummaryTime
+
+	log.Printf("SummaryTask: next run scheduled at %s", tomorrowSummaryTime.Format("2006-01-02 15:04:05"))
 }
 
 // parseSummaryTime 解析总结时间

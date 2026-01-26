@@ -32,4 +32,9 @@ type Storage interface {
 
 	// SaveWeeklySummary 保存周度总结
 	SaveWeeklySummary(weekEndDate time.Time, summary string, metadata models.SummaryMetadata) error
+
+	// GetUngeneratedDates 获取所有有数据但未生成日报的日期
+	// 返回日期列表，按时间从旧到新排序
+	// endDate: 检查的截止日期（不包含），通常为今天
+	GetUngeneratedDates(endDate time.Time) ([]time.Time, error)
 }

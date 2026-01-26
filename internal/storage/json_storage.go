@@ -281,3 +281,66 @@ func (s *JSONStorage) SaveWeeklySummary(weekEndDate time.Time, summary string, m
 
 	return nil
 }
+
+// GetUngeneratedDates 获取所有有数据但未生成日报的日期
+func (s *JSONStorage) GetUngeneratedDates(endDate time.Time) ([]time.Time, error) {
+	var ungeneratedDates []time.Time
+
+	// 读取 dataDir 目录下的所有 JSON 文件
+	entries, err := os.ReadDir(s.dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ungeneratedDates, nil
+		}
+		return nil, fmt.Errorf("read data directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		// 跳过非文件
+		if entry.IsDir() {
+			continue
+		}
+
+		// 只处理 .json 文件
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+
+		// 解析文件名获取日期（格式：YYYY-MM-DD.json）
+		dateStr := entry.Name()[:len(entry.Name())-5] // 去掉 .json
+		date, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			// 跳过无法解析的文件
+			continue
+		}
+
+		// 只检查 endDate 之前的日期（不包含 endDate）
+		if !date.Before(endDate) {
+			continue
+		}
+
+		// 读取该日期的数据
+		dailyData, err := s.GetDailyData(date)
+		if err != nil {
+			// 跳过读取失败的文件
+			continue
+		}
+
+		// 检查是否有记录且未生成总结
+		if len(dailyData.Entries) > 0 && !dailyData.SummaryGenerated {
+			ungeneratedDates = append(ungeneratedDates, date)
+		}
+	}
+
+	// 按日期从旧到新排序
+	// time.Time 可以直接比较，使用冒泡排序保持简单
+	for i := 0; i < len(ungeneratedDates); i++ {
+		for j := i + 1; j < len(ungeneratedDates); j++ {
+			if ungeneratedDates[i].After(ungeneratedDates[j]) {
+				ungeneratedDates[i], ungeneratedDates[j] = ungeneratedDates[j], ungeneratedDates[i]
+			}
+		}
+	}
+
+	return ungeneratedDates, nil
+}
