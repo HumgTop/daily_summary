@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -248,36 +249,19 @@ func (s *JSONStorage) SaveWeeklySummary(weekEndDate time.Time, summary string, m
 		return fmt.Errorf("create weekly directory: %w", err)
 	}
 
-	// 文件名：weekly-YYYY-MM-DD.md（周日日期）
+	// 文件名：weekly-YYYY-MM-DD.html（周日日期）
 	dateStr := weekEndDate.Format("2006-01-02")
-	filename := fmt.Sprintf("weekly-%s.md", dateStr)
+	filename := fmt.Sprintf("weekly-%s.html", dateStr)
 	filePath := filepath.Join(weeklyDir, filename)
 
-	// 计算周开始日期（周一）
-	weekStartDate := weekEndDate.AddDate(0, 0, -6)
-
-	// 构建文件内容（与每日总结格式类似）
-	content := fmt.Sprintf(`# 周报 - %s
-
-生成时间: %s
-周期: %s 至 %s
-每日总结条数: %d
-
----
-
-%s
-`,
-		dateStr,
-		metadata.GeneratedAt.Format("2006-01-02 15:04:05"),
-		weekStartDate.Format("2006-01-02"),
-		dateStr,
-		metadata.EntryCount,
-		summary,
-	)
-
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+	// 直接保存 AI 生成的 HTML 内容
+	// AI 已经按照 Prompt 要求生成了完整的 HTML 文档
+	if err := os.WriteFile(filePath, []byte(summary), 0644); err != nil {
 		return fmt.Errorf("write weekly summary file: %w", err)
 	}
+
+	log.Printf("✓ 周报已生成并保存到: %s", filePath)
+	log.Printf("  周期: %s 至 %s", weekEndDate.AddDate(0, 0, -6).Format("2006-01-02"), dateStr)
 
 	return nil
 }

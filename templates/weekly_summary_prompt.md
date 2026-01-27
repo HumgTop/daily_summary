@@ -1,12 +1,6 @@
 # 周报生成任务
 
 请基于以下每日工作总结生成一份结构化的周报。
-
-## 基本信息
-
-- **周期**: {{.WeekStartDate}} 至 {{.WeekEndDate}}
-- **每日总结条数**: {{.EntryCount}}
-
 ## 本周每日总结
 
 {{range .DailySummaries}}
