@@ -26,7 +26,8 @@
       "Bash(pkill:*)",
       "Bash(python3:*)",
       "Bash(find:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(open:*)"
     ],
     "additionalDirectories": [
       "/tmp",
