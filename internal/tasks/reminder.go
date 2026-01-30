@@ -129,7 +129,9 @@ func (t *ReminderTask) OnExecuted(now time.Time, config *scheduler.TaskConfig, e
 	}
 
 	// 计算下次执行时间
-	config.NextRun = t.calculateNextRun(now, config.IntervalMinutes)
+	// 使用当前实际时间而不是任务开始时间，避免用户长时间填写弹窗导致下次提醒时间过近
+	actualNow := time.Now()
+	config.NextRun = t.calculateNextRun(actualNow, config.IntervalMinutes)
 	log.Printf("Next %s at: %s", t.Name(), config.NextRun.Format("15:04:05"))
 }
 

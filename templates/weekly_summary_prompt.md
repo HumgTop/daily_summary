@@ -1,5 +1,11 @@
 # 周报生成任务
 
+## 基本信息
+
+- **周期**: {{.WeekStartDate}} 至 {{.WeekEndDate}}
+- **每日总结条数**: {{.EntryCount}}
+
+
 请基于以下每日工作总结生成一份结构化的周报。
 ## 本周每日总结
 
@@ -20,11 +26,17 @@
 
 **重要：请直接输出完整的 HTML 格式周报（使用纯 CSS 绘制饼图）。**
 
+**⚠️ 特别注意：**
+- **直接输出 HTML 代码**，从 `<!DOCTYPE html>` 开始
+- **绝对不要**使用 Markdown 代码块标记（\`\`\`html 或 \`\`\`）
+- **不要**在 HTML 前后添加任何解释性文字
+- AI 的完整输出内容应该可以直接保存为 `.html` 文件并在浏览器中打开
+
 请严格按照以下 HTML 结构生成周报，确保内容准确、清晰、有条理。
 
 ### 完整 HTML 文档结构
 
-```html
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -334,7 +346,7 @@
     </div>
 </body>
 </html>
-```
+
 
 ---
 
@@ -344,7 +356,6 @@
 
 使用 HTML 卡片格式：
 
-```html
 <div class="section">
     <h2>1. 本周完成情况</h2>
 
@@ -358,7 +369,7 @@
 
     <!-- 更多项目卡片 -->
 </div>
-```
+
 
 **要求**：
 - 汇总本周完成的主要任务
@@ -427,7 +438,6 @@
 
 使用以下格式：
 
-```html
 <div class="chart-container">
     <div class="chart-title">本周工作耗时分布（总计: XX.X 小时）</div>
     <div class="pie-chart-wrapper">
@@ -451,7 +461,6 @@
         </div>
     </div>
 </div>
-```
 
 **CSS 饼图绘制要求**：
 - **conic-gradient 角度计算**: 每个项目的角度 = (项目耗时 / 总耗时) × 360°
@@ -603,7 +612,7 @@ background: conic-gradient(
 
 ## 注意事项
 
-1. **HTML 格式输出（最重要）**: 必须输出完整的 HTML 文档，包含 `<!DOCTYPE html>`, `<html>`, `<head>`, `<style>`, `<body>` 等完整结构，**不需要** Mermaid.js 依赖
+1. **HTML 格式输出（最重要）**: 必须输出完整的 HTML 文档，包含 `<!DOCTYPE html>`, `<html>`, `<head>`, `<style>`, `<body>` 等完整结构，**不需要** Mermaid.js 依赖。**绝对不要**在 HTML 内容前后添加 Markdown 代码块标记（\`\`\`html 或 \`\`\`），直接输出纯 HTML 代码
 2. **纯 CSS 实现**: 饼图使用 CSS conic-gradient 实现，无需外部 JavaScript 库
 3. **全局视角**: 从整周维度总结，突出连贯性和整体进展
 4. **准确性**: 严格基于提供的每日总结，不要添加未记录的内容
