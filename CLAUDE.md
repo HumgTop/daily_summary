@@ -1,57 +1,467 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code 提供项目开发指导。
 
 ## Project Overview
 
-Daily Summary 是一个用 Go 编写的 macOS 桌面工具，用于自动化工作记录和 AI 总结生成：
+**Daily Summary** 是一个 Go 编写的 macOS 工作记录和 AI 总结工具。
 
 **核心功能：**
-- **定时提醒**：每小时（或自定义分钟间隔）弹窗提醒用户记录工作内容
-- **手动记录**：通过 CLI 命令随时添加工作记录
-- **智能重置**：手动添加记录后自动顺延下次提醒时间，避免重复
-- **数据持久化**：JSON 格式存储工作记录，按日期组织
-- **AI 总结**：每天指定时间自动调用 AI 生成前一天的工作总结
-- **多 AI 支持**：支持 Codex（默认）、Coco 和 Claude Code 三种 AI 提供商
-- **后台服务**：使用 launchd 持续运行，系统启动时自动启动
-- **进程管理**：通过文件锁防止重复启动
+- 定时提醒记录工作（支持小时/分钟级间隔）
+- 手动添加工作记录（CLI 命令）
+- 智能重置（手动记录后自动顺延提醒时间）
+- JSON 格式数据持久化（按日期组织）
+- AI 自动生成每日/每周工作总结
+- 多 AI 支持（Codex/Coco/Claude Code）
+- launchd 后台服务（自动启动、进程锁保护）
 
 **技术栈：**
-- Go 1.19+ 开发
-- 编译为单一二进制可执行文件
-- macOS osascript 实现原生对话框
+- Go 1.19+，单一二进制文件
+- macOS osascript 原生对话框
 - 统一任务调度器 + 文件持久化注册表
-- 定时任务调度（支持小时/分钟级，以及每日/每周定时）
 - Markdown 模板驱动的 Prompt 系统
-- 多 AI 提供商架构（Codex/Coco/Claude Code）
 
-## Development Guide
-
-### Building
+## Quick Start
 
 ```bash
-# 编译二进制文件
+# 编译
 go build -o daily_summary
 
-# 交叉编译（如需要）
-GOOS=darwin GOARCH=amd64 go build -o daily_summary
-GOOS=darwin GOARCH=arm64 go build -o daily_summary
+# 本地运行测试
+go run main.go add "测试记录"
+go run main.go list
+go run main.go popup
+
+# 安装为系统服务
+./scripts/install.sh
+
+# 查看日志
+tail -f ./run/logs/app.log
+tail -f ./run/logs/scheduler_check.log
 ```
 
-### Testing
+**测试脚本**（位于 `scripts/`）：
+- `quick_test.sh` - 快速功能测试（分钟级调度）
+- `test_config.sh` - 配置加载测试
+- `test_dialog.sh` - 对话框测试
+- `test_minute_interval.sh` - 分钟级调度测试
+
+**调试任务系统**：
+```bash
+# 查看任务注册表状态
+cat run/tasks.json | jq '.'
+
+# 重置任务（删除后会自动重新初始化）
+rm run/tasks.json && go run main.go serve
+```
+
+**调试 launchd 服务**：
+```bash
+launchctl list | grep daily_summary
+launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist
+launchctl load ~/Library/LaunchAgents/com.humg.daily_summary.plist
+```
+
+## Development Notes
+
+**重要约定**：
+- 对话过程中创建新文档需经我批准
+- 产出的文档统一放在 `docs/` 目录
+
+**配置优先级**：
+1. `--config` 命令行参数
+2. 项目根目录 `config.yaml`
+3. `~/.config/daily_summary/config.yaml`
+4. 默认配置（硬编码）
+
+**注意事项**：
+- Storage 操作无锁保护，进程锁保证单实例运行
+- JSON 按日期分文件，无数据库，无事务保证
+- AI 调用同步阻塞，失败时使用回退机制
+- 所有时间使用系统本地时区，无转换逻辑
+
+**扩展开发**：
+- 添加新 AI 提供商：参考 `internal/summary/codex.go`，实现 `AIClient` 接口
+- 平台扩展（Linux/Windows）：在 `internal/dialog/` 添加平台实现，使用 build tags 区分
+
+## Troubleshooting
+
+**服务无法启动**：
+```bash
+# 检查是否已有实例运行
+launchctl list | grep daily_summary
+cat run/daily_summary.lock
+
+# 强制重启
+launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist
+rm run/daily_summary.lock
+./scripts/install.sh
+```
+
+**对话框不弹出**：
+```bash
+# 手动触发测试
+./scripts/test_dialog.sh
+
+# 查看下次提醒时间
+tail -20 run/logs/app.log | grep "Next reminder"
+```
+
+**总结生成失败**：
+```bash
+# 检查 AI CLI 是否可用
+which codex && which coco && which claude-code
+
+# 手动测试
+daily_summary summary --date 2026-01-20
+
+# 查看任务错误
+cat run/tasks.json | jq '.tasks[] | select(.id=="daily-summary")'
+```
+
+**任务调度异常**：
+```bash
+# 查看所有任务状态
+cat run/tasks.json | jq '.tasks[] | {id, enabled, next_run, last_error}'
+
+# 手动触发任务测试
+daily_summary popup      # 测试提醒
+daily_summary summary    # 测试每日总结
+daily_summary weekly     # 测试周总结
+
+# 重置任务注册表
+mv run/tasks.json run/tasks.json.backup
+./scripts/install.sh
+```
+
+更多问题排查：查看日志文件 `run/logs/*.log`
+
+## Architecture
+
+### 核心组件
+
+**1. Scheduler（任务调度）** - `internal/scheduler/`
+- 每分钟唤醒检查所有任务
+- 任务注册表持久化到 `run/tasks.json`
+- 支持三种任务类型：interval（间隔）、daily（每日）、once（一次性）
+- 详见：`scheduler.go`, `registry.go`, `task.go`
+
+**2. Tasks（任务实现）** - `internal/tasks/`
+- `ReminderTask`: 工作记录提醒（小时级/分钟级间隔）
+- `SummaryTask`: 每日总结生成（指定时间触发，支持批量补充）
+- `WeeklySummaryTask`: 每周总结生成（聚合 7 天的每日总结）
+- `LogRotateTask`: 日志轮转（间隔触发，检查多个日志文件）
+
+**3. Dialog（对话框）** - `internal/dialog/`
+- macOS osascript 实现
+- 输入对话框（展示当日记录作为上下文）
+- 系统通知
+
+**4. Storage（数据存储）** - `internal/storage/`
+- JSON 文件存储，按日期分文件 (`YYYY-MM-DD.json`)
+- 数据结构：`WorkEntry`（单条记录）、`DailyData`（单日记录+总结状态）
+- 详见：`json_storage.go`
+
+**5. Summary（AI 总结）** - `internal/summary/`
+- 多 AI 架构：`AIClient` 接口，三种实现（Codex/Coco/Claude）
+- Prompt 模板系统：从 `templates/*.md` 加载，支持自定义
+- 批量生成：自动生成所有未生成的历史总结
+- 回退机制：AI 不可用时生成简单模板总结
+- 详见：`generator.go`, `codex.go`, `coco.go`, `claude.go`
+
+**6. CLI（命令行）** - `internal/cli/`
+- 进程锁机制（防止重复启动）
+- 命令：add, popup, list, summary, weekly
+- 手动添加记录后调用 `UpdateTaskSchedule()` 顺延提醒时间
+
+**7. Config（配置管理）** - `config/`
+- 支持 YAML/JSON 自动识别
+- 路径解析（相对/绝对路径）
+- 默认配置 fallback
+
+### 任务调度系统
+
+**工作流程**：
+```
+服务启动 → 加载 tasks.json → 每分钟检查循环 → 遍历所有任务 →
+调用 ShouldRun() → 执行 Execute() → 调用 OnExecuted() → 保存状态
+```
+
+**Task 接口**（详见 `internal/scheduler/task.go`）：
+```go
+type Task interface {
+    ID() string
+    Name() string
+    ShouldRun(now time.Time) bool
+    Execute() error
+    OnExecuted(success bool, err error)
+}
+```
+
+**任务注册表**（`run/tasks.json`）：
+- 存储任务配置和状态
+- 字段：ID、Name、Type、Enabled、NextRun、LastRun、LastSuccess、LastError、Data
+- 示例结构见代码或生成的 `run/tasks.json` 文件
+
+### AI 总结集成
+
+**支持的 AI 提供商**：
+1. **Codex**（默认）：`codex exec "{prompt}"`
+2. **Coco**：`coco -p "{prompt}"`
+3. **Claude Code**：`claude-code --prompt "{prompt}"`
+
+**总结生成流程**：
+1. 查找未生成的总结（批量补充）
+2. 收集工作记录
+3. 加载 Prompt 模板（`templates/summary_prompt.md` 或 `weekly_summary_prompt.md`）
+4. 填充模板并调用 AI
+5. 保存 Markdown 文件到 `run/summaries/daily/` 或 `weekly/`
+6. 标记生成状态
+7. 发送系统通知
+
+**Prompt 模板**：
+- 支持占位符：`{date}`, `{count}`, `{formatted_entries}`
+- 每日总结模板：包含主要任务、工作时间分析（Mermaid 图表）、关键进展、问题、明日计划
+- 每周总结模板：聚合 7 天的每日总结，更高层次的总结
+- 详见：`templates/summary_prompt.md`, `templates/weekly_summary_prompt.md`
+
+### 关键特性
+
+**1. 智能定时器重置**：
+- `add` 命令执行后直接更新任务注册表
+- 从当前时间顺延一个完整周期，避免重复提醒
+- 实现：`internal/cli/cli.go` 中的 `UpdateTaskSchedule()` 调用
+
+**2. 进程锁机制**：
+- 启动时检查 `run/daily_summary.lock` 文件
+- 防止同时运行多个实例
+
+**3. At-least-once 总结生成**：
+- `DailyData` 包含 `summary_generated` 字段
+- 启动时检查并批量补充所有未生成的总结
+
+**4. 延迟检测与跳过**：
+- 电脑休眠后唤醒检测延迟
+- 超过阈值（小时级 5 分钟，分钟级 50%）跳过本次调度
+
+**5. 日志轮转**：
+- LogRotateTask 定期检查日志大小
+- 超过 `max_log_size_mb` 时重命名为 `.old`，保留最近两个版本
+
+**6. 任务注册表持久化**：
+- 任务状态在进程重启后不丢失
+- 支持任务特定数据存储（Data 字段）
+
+### 数据结构
+
+核心结构定义见 `internal/models/models.go`：
+
+```go
+// 单条工作记录
+type WorkEntry struct {
+    Timestamp time.Time
+    Content   string
+}
+
+// 单日所有工作记录
+type DailyData struct {
+    Date             string      // YYYY-MM-DD
+    Entries          []WorkEntry
+    SummaryGenerated bool
+}
+
+// 任务配置（存储在 run/tasks.json）
+type TaskConfig struct {
+    ID              string
+    Name            string
+    Type            TaskType  // "interval", "daily", "once"
+    Enabled         bool
+    IntervalMinutes int       // interval 任务的分钟数
+    Time            string    // daily 任务的时间（HH:MM）
+    NextRun         time.Time
+    LastRun         time.Time
+    LastSuccess     time.Time
+    LastError       string
+    Data            map[string]interface{}
+}
+
+// 应用配置（完整定义见 models.go）
+type Config struct {
+    WorkDir              string
+    DataDir              string
+    SummaryDir           string
+    HourlyInterval       int
+    MinuteInterval       int
+    SummaryTime          string
+    AIProvider           string  // "codex", "coco", "claude"
+    EnableWeeklySummary  bool
+    WeeklySummaryTime    string
+    WeeklySummaryDay     int     // 1=周一, 7=周日
+    // ... 更多字段见 models.go
+}
+```
+
+### 文件组织
+
+```
+daily_summary/
+├── main.go                           # 程序入口，CLI 路由
+├── config/config.go                  # 配置管理
+├── internal/
+│   ├── models/models.go              # 数据模型定义
+│   ├── scheduler/                    # 任务调度
+│   │   ├── scheduler.go              # 统一调度器
+│   │   ├── task.go                   # Task 接口
+│   │   ├── registry.go               # 任务注册表
+│   │   └── init.go                   # 任务初始化
+│   ├── tasks/                        # 具体任务实现
+│   │   ├── reminder.go               # 工作提醒
+│   │   ├── summary.go                # 每日总结
+│   │   ├── weekly_summary.go         # 每周总结
+│   │   └── log_rotate.go             # 日志轮转
+│   ├── dialog/                       # 对话框
+│   │   ├── dialog.go                 # 接口定义
+│   │   └── osascript.go              # macOS 实现
+│   ├── storage/                      # 数据存储
+│   │   ├── storage.go                # 接口定义
+│   │   └── json_storage.go           # JSON 实现
+│   ├── summary/                      # AI 总结
+│   │   ├── client.go                 # AIClient 接口
+│   │   ├── codex.go                  # Codex 实现
+│   │   ├── coco.go                   # Coco 实现
+│   │   ├── claude.go                 # Claude Code 实现
+│   │   └── generator.go              # 总结生成器
+│   └── cli/cli.go                    # CLI 命令实现
+├── templates/                        # Prompt 模板
+│   ├── summary_prompt.md             # 每日总结模板
+│   └── weekly_summary_prompt.md      # 每周总结模板
+├── scripts/                          # 安装和测试脚本
+│   ├── install.sh                    # 安装脚本
+│   ├── uninstall.sh                  # 卸载脚本
+│   └── *.sh                          # 各种测试脚本
+├── launchd/                          # macOS 后台服务
+│   └── com.humg.daily_summary.plist  # launchd 配置
+├── docs/                             # 项目文档
+│   ├── QUICK_START.md
+│   ├── CONFIGURATION.md
+│   └── MINUTE_SCHEDULING.md
+├── run/                              # 运行时数据（.gitignore）
+│   ├── data/                         # 工作记录 JSON
+│   ├── summaries/
+│   │   ├── daily/                    # 每日总结 MD
+│   │   └── weekly/                   # 每周总结 MD
+│   ├── logs/                         # 日志文件
+│   ├── tasks.json                    # 任务注册表
+│   └── daily_summary.lock            # 进程锁
+├── config.yaml                       # 用户配置
+└── config.example.yaml               # 配置示例
+```
+
+## Configuration
+
+配置文件支持 YAML/JSON 格式，详见 `config.example.yaml`。
+
+**关键配置项**：
+```yaml
+# 目录
+work_dir: "."                         # 工作目录（项目根目录）
+data_dir: "./run/data"                # 数据目录
+summary_dir: "./run/summaries"        # 总结目录（包含 daily/ 和 weekly/）
+
+# 提醒间隔（二选一，minute_interval 优先）
+hourly_interval: 1                    # 小时间隔
+minute_interval: 25                   # 分钟间隔（番茄工作法等场景）
+
+# 每日总结
+summary_time: "23:00"                 # 生成时间
+ai_provider: "codex"                  # "codex", "coco", "claude"
+codex_path: "codex"                   # CLI 路径
+coco_path: "coco"
+claude_code_path: "claude-code"
+
+# 每周总结（可选）
+enable_weekly_summary: true
+weekly_summary_time: "11:00"
+weekly_summary_day: 1                 # 1=周一, 7=周日
+
+# 其他
+dialog_timeout: 300                   # 对话框超时（秒）
+enable_logging: true
+log_file: "./run/logs/app.log"
+max_log_size_mb: 10                   # 日志轮转阈值
+```
+
+详细配置说明见 `docs/CONFIGURATION.md`。
+
+## CLI Usage
+
+```bash
+# 1. serve（默认命令）- 启动后台服务
+daily_summary serve
+daily_summary                         # 等同于 serve
+
+# 2. add - 手动添加工作记录
+daily_summary add "完成需求文档审查"
+# 自动顺延下次提醒时间
+
+# 3. list - 查看今日记录
+daily_summary list
+
+# 4. popup - 手动触发输入对话框
+daily_summary popup
+
+# 5. summary - 手动生成每日总结
+daily_summary summary                 # 今天
+daily_summary summary --date 2026-01-19
+
+# 6. weekly - 手动生成每周总结
+daily_summary weekly                  # 本周
+daily_summary weekly --date 2026-01-20
+
+# 7. help - 显示帮助
+daily_summary help
+
+# 全局选项
+daily_summary --config ~/my-config.yaml serve
+```
+
+## Deployment
+
+**安装为系统服务**（使用 launchd）：
+```bash
+./scripts/install.sh
+```
+
+**卸载**：
+```bash
+./scripts/uninstall.sh
+# 数据和配置将保留
+```
+
+**launchd 配置**（`launchd/com.humg.daily_summary.plist`）：
+- WorkingDirectory: 项目根目录（绝对路径）
+- StandardOutPath: `run/logs/stdout.log`
+- StandardErrorPath: `run/logs/stderr.log`
+- RunAtLoad: 系统启动时自动运行
+- KeepAlive: 崩溃后自动重启
+
+**备份重要数据**：
+- `run/data/*.json` - 工作记录
+- `run/summaries/daily/*.md` - 每日总结
+- `run/summaries/weekly/*.md` - 每周总结
+- `run/tasks.json` - 任务状态
+- `config.yaml` - 配置
+- `templates/*.md` - 自定义模板
+
+## Testing
 
 ```bash
 # 运行所有测试
 go test ./...
 
-# 运行特定包的测试
+# 运行特定包测试
 go test ./internal/scheduler/
-
-# 运行特定测试函数
-go test -run TestFunctionName ./internal/scheduler/
-
-# 显示详细输出
-go test -v ./...
+go test -v ./internal/summary/
 
 # 测试覆盖率
 go test -cover ./...
@@ -59,1142 +469,38 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
-### 依赖管理
-
-```bash
-# 下载依赖
-go mod download
-
-# 清理未使用的依赖
-go mod tidy
-
-# 查看依赖图
-go mod graph
-
-# 更新依赖
-go get -u ./...
-```
-
-### 快速测试脚本
-
-项目提供了多个测试脚本方便开发：
-
-```bash
-# 快速功能测试（分钟级调度）
-./scripts/quick_test.sh
-
-# 测试配置加载
-./scripts/test_config.sh
-
-# 测试对话框
-./scripts/test_dialog.sh
-
-# 测试分钟级调度
-./scripts/test_minute_interval.sh
-```
-
-### 开发调试
-
-**本地运行**：
-```bash
-# 直接运行（使用默认配置）
-go run main.go
-
-# 使用自定义配置
-go run main.go --config ./config.yaml
-
-# 测试特定命令
-go run main.go add "测试记录"
-go run main.go popup
-go run main.go list
-go run main.go summary --date 2026-01-20
-go run main.go weekly --date 2026-01-20
-```
-
-**查看日志**：
-```bash
-# 实时查看应用日志
-tail -f ./run/logs/app.log
-
-# 查看调度器检查日志
-tail -f ./run/logs/scheduler_check.log
-
-# 查看 launchd 输出
-tail -f ./run/logs/stdout.log
-tail -f ./run/logs/stderr.log
-```
-
-**调试任务系统**：
-```bash
-# 查看任务注册表
-cat run/tasks.json | jq '.'
-
-# 查看特定任务状态
-cat run/tasks.json | jq '.tasks[] | select(.id=="work-reminder")'
-
-# 重置任务注册表（重新初始化）
-rm run/tasks.json
-go run main.go serve  # 会自动创建新的 tasks.json
-```
-
-**调试 launchd 服务**：
-```bash
-# 查看服务状态
-launchctl list | grep daily_summary
-
-# 查看详细信息
-launchctl list com.humg.daily_summary
-
-# 停止服务
-launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist
-
-# 启动服务
-launchctl load ~/Library/LaunchAgents/com.humg.daily_summary.plist
-
-# 重启服务
-launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist && \
-launchctl load ~/Library/LaunchAgents/com.humg.daily_summary.plist
-```
-
-### 代码规范
-
-**接口设计**：
-- 优先定义接口，便于测试和扩展
-- 接口命名使用动词或能力描述（如 `Dialog`, `Storage`, `AIClient`）
-- 保持接口精简，单一职责
-
-**错误处理**：
-- 使用 `fmt.Errorf` 包装错误，添加上下文信息
-- 日志记录错误详情，返回给调用者简洁的错误信息
-- 区分致命错误和非致命错误
-
-**日志规范**：
-- 使用 `log.Printf` 记录重要操作和状态
-- 错误日志包含足够的上下文信息
-- 避免在循环中大量打印日志
-
-**配置优先级**：
-1. 命令行参数
-2. 配置文件
-3. 默认值
-
-### 添加新 AI 提供商
-
-如需添加新的 AI 提供商支持：
-
-1. 在 `internal/summary/` 创建新的客户端文件（如 `openai.go`）
-2. 实现 `AIClient` 接口：
-   ```go
-   type NewAIClient struct {
-       // 配置字段
-   }
-
-   func (c *NewAIClient) GenerateSummary(prompt string) (string, error) {
-       // 实现总结生成逻辑
-   }
-   ```
-3. 在 `main.go` 中添加新提供商的初始化逻辑
-4. 更新 `models.Config` 添加相关配置字段
-5. 更新 `config.example.yaml` 和文档
-
-### 平台扩展
-
-当前仅支持 macOS，如需扩展到其他平台：
-
-**Linux 支持**：
-- 对话框：使用 `zenity` 或 `kdialog`
-- 通知：使用 `notify-send`
-- 在 `internal/dialog/` 添加 Linux 实现
-
-**Windows 支持**：
-- 对话框：使用 PowerShell 或 WinForms
-- 通知：使用 Windows Toast
-- 在 `internal/dialog/` 添加 Windows 实现
-
-**跨平台抽象**：
-- 保持 `Dialog` 接口不变
-- 使用构建标签（build tags）区分平台实现
-- 编译时自动选择对应平台的实现
-
-## Troubleshooting
-
-### 常见问题
-
-**1. 服务无法启动**
-
-检查项：
-- 是否已有实例在运行：`launchctl list | grep daily_summary`
-- 查看进程锁文件：`cat run/daily_summary.lock`
-- 检查日志：`tail -f run/logs/stderr.log`
-
-解决方案：
-```bash
-# 强制停止旧实例
-launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist
-rm run/daily_summary.lock
-
-# 重新启动
-./scripts/install.sh
-```
-
-**2. 对话框不弹出**
-
-检查项：
-- 服务是否运行：`ps aux | grep daily_summary`
-- 查看下次提醒时间：`tail -20 run/logs/app.log | grep "Next reminder"`
-- 确认时间对齐是否正确
-
-调试：
-```bash
-# 手动触发对话框测试
-./scripts/test_dialog.sh
-
-# 使用分钟级调度快速测试
-cp config.pomodoro.yaml config.yaml
-./scripts/quick_test.sh
-```
-
-**3. 总结生成失败**
-
-检查项：
-- AI CLI 是否安装：`which codex`、`which coco` 或 `which claude-code`
-- 是否有工作记录：`daily_summary list`
-- 配置是否正确：`cat config.yaml`
-- Prompt 模板是否存在：`ls templates/`
-- 任务状态是否正常：`cat run/tasks.json`
-
-解决方案：
-```bash
-# 手动测试总结生成
-daily_summary summary --date 2026-01-20
-
-# 检查任务错误信息
-cat run/tasks.json | grep -A 5 "daily-summary"
-
-# 使用回退机制（即使 AI 不可用也能生成简单总结）
-# 程序会自动检测并使用回退机制
-```
-
-**4. 时间对齐问题**
-
-现象：提醒时间不在整点或预期的分钟边界
-
-原因：
-- 服务启动时间不在边界上
-- 系统时间跳变（NTP 同步、手动调整）
-
-解决方案：
-```bash
-# 重启服务，重新对齐
-launchctl unload ~/Library/LaunchAgents/com.humg.daily_summary.plist
-launchctl load ~/Library/LaunchAgents/com.humg.daily_summary.plist
-
-# 查看日志确认对齐
-tail -f run/logs/app.log
-```
-
-**5. 日志文件过大**
-
-配置 `max_log_size_mb` 启用日志轮转：
-
-```yaml
-enable_logging: true
-max_log_size_mb: 10  # 超过 10MB 自动轮转
-```
-
-手动清理：
-```bash
-# 删除旧日志
-rm run/logs/app.log.old
-
-# 清空当前日志
-: > run/logs/app.log
-```
-
-**6. 任务调度不正常**
-
-现象：某个任务长时间未执行或执行时间不符合预期
-
-检查项：
-- 查看任务注册表：`cat run/tasks.json`
-- 检查任务是否启用：`enabled: true`
-- 查看 NextRun 时间是否合理
-- 查看 LastError 是否有错误信息
-
-解决方案：
-```bash
-# 查看任务状态
-cat run/tasks.json | jq '.tasks[] | {id, enabled, next_run, last_error}'
-
-# 手动触发任务测试
-daily_summary popup      # 测试提醒任务
-daily_summary summary    # 测试总结任务
-daily_summary weekly     # 测试周总结任务
-
-# 如果任务状态异常，删除 tasks.json 并重启
-mv run/tasks.json run/tasks.json.backup
-./scripts/install.sh
-
-# 查看调度器检查日志
-tail -f run/logs/scheduler_check.log
-```
-
-### 重要注意事项
-- 对话过程中，如果要写新文档，必须得到我的批准
-- 工作过程产出的文档，统一放在 docs/ 目录下
-
-**1. 配置文件路径**
-
-优先级顺序：
-1. `--config` 参数指定的路径
-2. 项目根目录（work_dir）的 `config.yaml`
-3. `~/.config/daily_summary/config.yaml`（备选）
-4. 默认配置（硬编码）
-
-**2. 工作目录**
-
-launchd 服务的工作目录由 plist 中的 `WorkingDirectory` 指定，必须是项目根目录的绝对路径。
-
-相对路径（如 `./run/data`）会基于这个目录解析。
-
-**3. 时区处理**
-
-所有时间都使用系统本地时区，无时区转换逻辑。
-
-**4. 并发安全**
-
-- Storage 操作是文件级的，无锁保护
-- 同一时间只应有一个服务实例运行（通过进程锁保证）
-- 手动命令（add/list/summary）与服务实例可能有竞态，但影响很小
-
-**5. 数据持久化**
-
-- JSON 文件按日期分文件，易于备份和迁移
-- 没有数据库，没有事务保证
-- 文件写入失败会丢失数据（罕见）
-
-**6. AI 调用**
-
-- AI 调用是同步阻塞的，生成总结期间调度器会等待
-- 如果 AI 响应超时或失败，使用回退总结
-- AI 调用失败不会导致程序崩溃
-
-**7. macOS 权限**
-
-首次运行时 macOS 可能会请求以下权限：
-- 辅助功能权限（osascript 对话框）
-- 通知权限（系统通知）
-
-如果对话框无法显示，检查"系统偏好设置 > 安全性与隐私 > 隐私 > 辅助功能"。
-
-## Best Practices
-
-### 配置建议
-
-**生产环境**：
-```yaml
-hourly_interval: 1                # 每小时记录一次
-summary_time: "23:00"             # 晚上 11 点生成总结
-ai_provider: "codex"              # 使用 Codex
-enable_logging: true
-max_log_size_mb: 10               # 限制日志大小
-enable_weekly_summary: true       # 启用周总结
-weekly_summary_time: "11:00"      # 周一 11 点生成周总结
-weekly_summary_day: 1
-```
-
-**开发/测试**：
-```yaml
-minute_interval: 5                # 每 5 分钟测试一次
-summary_time: "00:00"
-ai_provider: "codex"
-enable_logging: true
-enable_weekly_summary: false      # 测试时禁用周总结
-```
-
-**番茄工作法**：
-```yaml
-minute_interval: 25               # 每 25 分钟记录
-summary_time: "18:00"             # 下班时生成总结
-ai_provider: "coco"               # 可选使用 Coco
-enable_weekly_summary: true
-weekly_summary_time: "18:00"      # 周五下班时生成周总结
-weekly_summary_day: 5
-```
-
-### 备份建议
-
-重要数据：
-- `run/data/*.json` - 所有工作记录
-- `run/summaries/daily/*.md` - 每日总结文件
-- `run/summaries/weekly/*.md` - 每周总结文件
-- `run/tasks.json` - 任务注册表状态
-- `config.yaml` - 配置文件
-- `templates/*.md` - Prompt 模板（如有自定义）
-
-备份脚本示例：
-```bash
-#!/bin/bash
-tar -czf backup-$(date +%Y%m%d).tar.gz run/data run/summaries run/tasks.json config.yaml templates/
-```
-
-### 监控建议
-
-监控项：
-- 进程是否运行：`launchctl list | grep daily_summary`
-- 日志文件大小：`du -sh run/logs/`
-- 磁盘空间：`df -h .`
-- 最近一次提醒时间：`tail run/logs/app.log | grep "Work entry saved"`
-
-可以使用 cron 或其他监控工具定期检查。
-
-## Key Features
-
-### 1. 智能定时器重置机制
-
-**问题**：用户手动添加记录后，如果下次定时提醒在不久后触发，会导致重复提醒。
-
-**解决方案**：
-- 用户执行 `add` 命令时，CLI 直接调用 `UpdateTaskSchedule()` 更新任务注册表
-- 重新计算下一次提醒时间（从当前时间顺延一个完整周期）
-- 更新持久化到 `run/tasks.json` 文件
-- Scheduler 每分钟检查时会读取最新的调度时间
-
-**示例**：
-```
-10:00 - 服务启动，下次提醒: 11:00
-10:30 - 用户执行 add 添加记录
-10:30 - 直接更新任务注册表，下次提醒: 11:30（避免 11:00 重复提醒）
-11:30 - Scheduler 读取注册表，触发提醒
-```
-
-### 2. 进程锁机制
-
-**目的**：防止同时运行多个 daily_summary 实例。
-
-**实现**：
-- 启动时检查 `run/daily_summary.lock` 文件
-- 如果存在且 PID 进程仍在运行，拒绝启动并提示
-- 如果进程已结束，清理旧锁文件并创建新锁
-- 退出时自动释放锁文件
-
-### 3. At-least-once 总结生成
-
-**保证**：即使错过了配置的总结时间，也会补充生成。
-
-**机制**：
-- `DailyData` 包含 `summary_generated` 字段跟踪状态
-- Scheduler 启动时检查昨天是否已生成总结
-- 如果未生成且已过配置时间，立即生成
-- 之后继续正常调度下一次生成
-
-### 4. 延迟检测与跳过
-
-**问题**：电脑休眠后唤醒，timer 触发时间会严重延迟。
-
-**解决方案**：
-- 定时器触发时，比较实际时间和预期时间
-- 如果延迟超过阈值（小时级 5 分钟，分钟级 50%），跳过本次调度
-- 重新计算下一次触发时间
-
-### 5. 日志轮转
-
-**机制**：
-- LogRotateTask 定期检查日志文件大小（默认每 3 小时）
-- 检查多个日志文件：app.log、stdout.log、stderr.log、scheduler_check.log
-- 如果超过 `max_log_size_mb` 限制，将当前日志重命名为 `.old`
-- 创建新的日志文件
-- 保留最近两个日志文件（current + .old）
-- 任务状态持久化到 tasks.json
-
-### 6. 任务注册表持久化
-
-**目的**：保证任务状态在进程重启后不丢失。
-
-**实现**：
-- 任务配置和状态存储在 `run/tasks.json`
-- 包含 NextRun、LastRun、LastSuccess、LastError 等字段
-- 每次任务执行后自动更新并保存
-- 支持任务特定数据存储（Data 字段）
-- 启动时自动加载并恢复任务状态
-
-**任务类型**：
-- **interval**：按固定间隔执行（如工作提醒、日志轮转）
-- **daily**：每日指定时间执行（如每日总结）
-- **once**：一次性任务（未来扩展用）
-
-### 7. 批量总结生成
-
-**场景**：用户可能有多天未生成总结，或者首次使用工具。
-
-**机制**：
-- SummaryTask 启动时扫描所有日期的工作记录
-- 识别所有 `summary_generated: false` 的日期
-- 按时间顺序批量生成所有遗漏的总结
-- 每个总结独立生成和保存
-- 全部完成后更新任务状态
-
-### 8. 周总结聚合
-
-**功能**：自动汇总一周的工作内容，生成更高层次的总结。
-
-**实现**：
-- WeeklySummaryTask 在配置的星期几和时间触发
-- 读取该周所有每日总结（ISO 周定义：周一到周日）
-- 使用 `templates/weekly_summary_prompt.md` 模板
-- 将 7 天的总结作为输入发送给 AI
-- 生成文件命名为 `YYYY-Wnn.md`（ISO 周编号）
-- 防止同一周重复生成（通过 Data 字段跟踪）
-
-### 9. Prompt 模板系统
-
-**目的**：让用户可以自定义 AI 总结的格式和风格。
-
-**实现**：
-- 模板存储在 `templates/` 目录
-- 支持每日总结模板（`summary_prompt.md`）
-- 支持每周总结模板（`weekly_summary_prompt.md`）
-- 模板中使用占位符（如 `{date}`, `{formatted_entries}`）
-- 加载失败时使用硬编码回退模板
-- 用户可以自定义模板而无需修改代码
-
-## Architecture
-
-### 主要组件
-
-1. **定时器模块（Scheduler）** - `internal/scheduler/`
-   - **统一调度架构**：
-     - 单一调度器每分钟检查一次所有任务
-     - 任务注册表（registry.go）持久化到 `run/tasks.json`
-     - 支持三种任务类型：interval（间隔）、daily（每日）、once（一次性）
-   - **任务系统**（`internal/tasks/`）：
-     - ReminderTask：工作记录提醒（支持小时级或分钟级间隔）
-     - SummaryTask：每日总结生成（指定时间触发）
-     - WeeklySummaryTask：每周总结生成（指定星期和时间）
-     - LogRotateTask：日志轮转（间隔触发）
-   - **智能时间对齐**：
-     - 小时级：对齐到整点（如 10:00, 11:00）
-     - 分钟级：对齐到分钟边界（如 10:30, 11:00）
-   - **延迟检测**：检测系统唤醒导致的延迟，跳过过期的提醒
-   - **状态持久化**：每个任务跟踪 NextRun、LastRun、LastSuccess、LastError
-   - **At-least-once 语义**：启动时检查是否有遗漏的总结，批量补充生成
-
-2. **对话框模块（Dialog）** - `internal/dialog/`
-   - **平台**：macOS osascript 实现
-   - **功能**：
-     - 显示输入对话框收集工作记录
-     - 支持超时自动关闭
-     - 显示通知（总结生成完成）
-   - **上下文展示**：弹窗中展示当日已有记录，帮助用户回忆
-
-3. **数据存储模块（Storage）** - `internal/storage/`
-   - **格式**：JSON 文件存储
-   - **组织方式**：按日期分文件（`YYYY-MM-DD.json`）
-   - **数据结构**：
-     - WorkEntry：单条记录（时间戳 + 内容）
-     - DailyData：单日所有记录 + 总结生成状态
-   - **元数据跟踪**：记录总结是否已生成，避免重复
-
-4. **总结生成模块（Summary Generator）** - `internal/summary/`
-   - **多 AI 架构**：
-     - AIClient 接口抽象
-     - CodexClient 实现（默认）
-     - CocoClient 实现
-     - ClaudeClient 实现
-   - **模板系统**：
-     - Prompt 从 `templates/summary_prompt.md` 加载
-     - 支持每日和每周总结模板
-     - 模板加载失败时使用硬编码回退
-   - **批量生成**：SummaryTask 自动生成所有未生成的历史总结
-   - **回退机制**：AI 不可用时生成简单模板总结
-   - **通知集成**：总结生成后发送系统通知
-
-5. **CLI 命令模块（CLI）** - `internal/cli/`
-   - **进程管理**：
-     - 文件锁机制防止重复启动
-     - PID 跟踪和进程检测
-   - **手动操作**：
-     - `add`：手动添加工作记录
-     - `popup`：显示输入对话框（CLI 版本的提醒）
-     - `list`：查看今日记录
-     - `summary`：手动触发每日总结生成
-     - `weekly`：手动触发每周总结生成
-   - **调度更新**：添加记录后直接调用 `UpdateTaskSchedule()` 更新任务注册表
-
-6. **配置管理模块（Config）** - `config/`
-   - 支持 YAML/JSON 格式自动识别
-   - 路径解析（相对/绝对路径处理）
-   - 默认配置 fallback
-   - 目录创建和权限管理
-
-### 任务调度系统详解
-
-**架构概览**：
-- Scheduler 每分钟唤醒一次，检查所有注册的任务
-- 任务配置和状态持久化到 `run/tasks.json`（TaskRegistry）
-- 每个任务实现 Task 接口（ShouldRun, Execute, OnExecuted）
-
-**工作流程**：
-```
-1. 服务启动
-   ↓
-2. 加载或初始化 tasks.json
-   ↓
-3. 启动调度循环（每 1 分钟）
-   ↓
-4. 遍历所有任务
-   ↓
-5. 调用 task.ShouldRun() 检查是否应该执行
-   ↓
-6. 如果应该执行，调用 task.Execute()
-   ↓
-7. 调用 task.OnExecuted() 更新下次执行时间
-   ↓
-8. 保存任务状态到 tasks.json
-   ↓
-9. 等待下一个检查周期
-```
-
-**任务接口**：
-```go
-type Task interface {
-    ID() string                           // 任务唯一标识
-    Name() string                         // 任务显示名称
-    ShouldRun(now time.Time) bool        // 判断是否应该执行
-    Execute() error                       // 执行任务逻辑
-    OnExecuted(success bool, err error)  // 执行后回调（更新状态）
-}
-```
-
-**四种内置任务**：
-1. **ReminderTask**（work-reminder）
-   - 类型：interval
-   - 功能：按配置的间隔弹出对话框提醒记录工作
-   - 延迟检测：如果延迟超过间隔的 50%，跳过并重新调度
-   - 更新机制：`add` 命令执行后会调用 `UpdateTaskSchedule()` 顺延下次提醒
-
-2. **SummaryTask**（daily-summary）
-   - 类型：daily
-   - 功能：每日指定时间生成工作总结
-   - 批量生成：启动时检查所有未生成的日期，批量补充
-   - 模板驱动：从 `templates/summary_prompt.md` 加载 Prompt
-
-3. **WeeklySummaryTask**（weekly-summary）
-   - 类型：daily（实际按周执行，但使用 daily 类型）
-   - 功能：每周指定时间聚合生成周总结
-   - 去重机制：通过 Data 字段跟踪 `last_generated_week`，防止重复生成
-   - 依赖每日总结：读取该周的所有 daily/*.md 文件作为输入
-
-4. **LogRotateTask**（log-rotate）
-   - 类型：interval
-   - 功能：定期检查并轮转日志文件
-   - 检查多个文件：app.log、stdout.log、stderr.log、scheduler_check.log
-   - 轮转策略：超过 max_log_size_mb 时重命名为 .old，保留最近两个版本
-
-**任务注册表结构**（tasks.json）：
-```json
-{
-  "tasks": [
-    {
-      "id": "work-reminder",
-      "name": "Work Entry Reminder",
-      "type": "interval",
-      "enabled": true,
-      "interval_minutes": 45,
-      "next_run": "2026-02-02T15:00:00+08:00",
-      "last_run": "2026-02-02T14:15:00+08:00",
-      "last_success": "2026-02-02T14:15:00+08:00",
-      "last_error": "",
-      "data": {}
-    },
-    {
-      "id": "daily-summary",
-      "name": "Daily Summary Generator",
-      "type": "daily",
-      "enabled": true,
-      "time": "11:00",
-      "next_run": "2026-02-03T11:00:00+08:00",
-      "last_run": "2026-02-02T11:00:00+08:00",
-      "last_success": "2026-02-02T11:00:00+08:00",
-      "last_error": "",
-      "data": {}
-    },
-    {
-      "id": "weekly-summary",
-      "name": "Weekly Summary Generator",
-      "type": "daily",
-      "enabled": true,
-      "time": "11:00",
-      "next_run": "2026-02-03T11:00:00+08:00",
-      "data": {
-        "day_of_week": 1,
-        "last_generated_week": "2026-05"
-      }
-    },
-    {
-      "id": "log-rotate",
-      "name": "Log File Rotator",
-      "type": "interval",
-      "enabled": true,
-      "interval_minutes": 180,
-      "next_run": "2026-02-02T17:00:00+08:00",
-      "data": {}
-    }
-  ]
-}
-```
-
-### AI 总结集成
-
-程序支持三种 AI 提供商生成工作总结：
-
-#### 1. Codex（默认提供商）
-- **调用方式**：`codex exec "{prompt}"`
-- **工作目录**：在项目目录（work_dir）中执行
-- **回退机制**：如果 Codex 不可用，生成简单模板总结
-- **配置项**：`ai_provider: "codex"`, `codex_path: "codex"`
-
-#### 2. Coco
-- **调用方式**：`coco -p "{prompt}"`
-- **工作目录**：在项目目录（work_dir）中执行
-- **回退机制**：如果 Coco 不可用，生成简单模板总结
-- **配置项**：`ai_provider: "coco"`, `coco_path: "coco"`
-
-#### 3. Claude Code
-- **调用方式**：`claude-code --prompt "{prompt}"`
-- **工作目录**：临时目录 `~/.daily_summary_temp`
-- **回退机制**：如果 Claude Code 不可用，生成简单模板总结
-- **配置项**：`ai_provider: "claude"`, `claude_code_path: "claude-code"`
-
-#### 总结生成流程
-
-当触发总结生成时（每日指定时间或手动命令），程序会：
-
-1. **查找未生成的总结**：SummaryTask 检查所有未生成总结的日期（批量补充）
-2. **收集数据**：读取指定日期的所有工作记录
-3. **检查记录**：如果没有记录，跳过生成
-4. **加载模板**：从 `templates/summary_prompt.md` 加载 Prompt 模板（失败则使用硬编码回退）
-5. **构建 Prompt**：将工作记录填充到模板中
-6. **调用 AI**：根据 `ai_provider` 配置选择对应客户端（codex/coco/claude）
-7. **保存结果**：将 AI 生成的总结保存为 Markdown 文件到 `run/summaries/daily/`
-8. **标记状态**：在 DailyData 中标记 `summary_generated: true`
-9. **发送通知**：通过 osascript 显示系统通知
-
-#### AI 收到的 Prompt 格式
-
-Prompt 从 `templates/summary_prompt.md` 模板加载，模板包含：
-
-- 日期和记录条数信息
-- 格式化的工作记录列表（带时间戳）
-- 详细的输出格式要求（主要任务、关键进展、问题、明日计划）
-- 时间分析要求（使用 Mermaid 图表可视化）
-- 工作时长估算规则
-
-**模板示例结构**：
-```markdown
-请为以下工作记录生成一份结构化的工作总结（日期：{date}，共{count}条记录）
-
-工作记录（每条记录是对前一个时间窗口工作内容的总结）：
-
-{formatted_entries}
-
-请按照以下格式生成总结：
-## 主要完成的任务
-（列出完成的主要工作，按项目或模块分类，并估算工作实际耗时）
-
-## 工作时间分析
-（表格 + Mermaid 饼图展示时间分配）
-
-## 关键进展
-（突出重要的进展和成果）
-
-## 遇到的问题
-（如果有记录到问题，列出来）
-
-## 明日计划
-（如果记录中有提及，整理出来）
-```
-
-周总结使用 `templates/weekly_summary_prompt.md`，聚合 7 天的每日总结。
-
-#### AI 期望输出
-
-AI 应该返回符合模板格式的 Markdown 文本，包括：
-- 按项目/模块分类的任务列表
-- 工作时长估算（使用 1 位小数的小时数）
-- 工作时间分析（表格 + Mermaid 饼图）
-- 重要进展和成果
-- 遇到的问题和解决方案
-- 明日计划（如有）
-
-**Mermaid 图表示例**：
-```markdown
-## 工作时间分析
-
-| 项目/模块 | 耗时 |
-|-----------|------|
-| 项目 A    | 3.5h |
-| 项目 B    | 2.0h |
-| 会议沟通  | 1.5h |
-
-```mermaid
-pie
-    title 工作时间分配
-    "项目 A" : 3.5
-    "项目 B" : 2.0
-    "会议沟通" : 1.5
-` ``
-```
-
-周总结输出格式类似，但是跨越 7 天的更高层次总结。
-
-### 数据结构
-
-```go
-// WorkEntry 表示单次工作记录
-type WorkEntry struct {
-    Timestamp time.Time `json:"timestamp"` // 记录时间
-    Content   string    `json:"content"`   // 工作内容
-}
-
-// DailyData 表示一天的所有工作记录
-type DailyData struct {
-    Date             string      `json:"date"`               // 格式: YYYY-MM-DD
-    Entries          []WorkEntry `json:"entries"`            // 工作记录列表
-    SummaryGenerated bool        `json:"summary_generated"`  // 是否已生成总结
-}
-
-// SummaryMetadata 总结的元数据
-type SummaryMetadata struct {
-    GeneratedAt time.Time `json:"generated_at"` // 生成时间
-    Date        string    `json:"date"`         // 总结对应的日期
-    EntryCount  int       `json:"entry_count"`  // 记录条数
-}
-
-// TaskConfig 任务配置（存储在 run/tasks.json）
-type TaskConfig struct {
-    ID              string                 `json:"id"`               // 任务唯一标识
-    Name            string                 `json:"name"`             // 任务显示名称
-    Type            TaskType               `json:"type"`             // 任务类型："interval", "daily", "once"
-    Enabled         bool                   `json:"enabled"`          // 是否启用
-    IntervalMinutes int                    `json:"interval_minutes"` // 间隔任务的分钟数
-    Time            string                 `json:"time"`             // 每日任务的时间（HH:MM）
-    NextRun         time.Time              `json:"next_run"`         // 下次执行时间
-    LastRun         time.Time              `json:"last_run"`         // 最后执行时间
-    LastSuccess     time.Time              `json:"last_success"`     // 最后成功时间
-    LastError       string                 `json:"last_error"`       // 最后错误信息
-    Data            map[string]interface{} `json:"data"`             // 任务特定数据
-}
-
-// Config 应用配置（完整定义见 internal/models/models.go）
-type Config struct {
-    WorkDir              string // 工作目录（项目根目录）
-    DataDir              string // 数据目录
-    SummaryDir           string // 总结目录（包含 daily/ 和 weekly/ 子目录）
-    HourlyInterval       int    // 小时间隔
-    MinuteInterval       int    // 分钟间隔（优先级更高）
-    SummaryTime          string // 生成每日总结的时间
-    AIProvider           string // AI 提供商："codex"、"coco" 或 "claude"
-    CodexPath            string // Codex CLI 路径
-    CocoPath             string // Coco CLI 路径
-    ClaudeCodePath       string // Claude Code CLI 路径
-    DialogTimeout        int    // 对话框超时（秒）
-    EnableLogging        bool   // 是否启用日志
-    LogFile              string // 日志文件路径
-    MaxLogSizeMB         int    // 日志文件最大大小（MB）
-    EnableWeeklySummary  bool   // 是否启用周总结
-    WeeklySummaryTime    string // 生成周总结的时间
-    WeeklySummaryDay     int    // 生成周总结的星期（1=周一，7=周日）
-}
-```
-
-### 文件组织
-
-项目采用标准 Go 项目结构：
-
-```
-daily_summary/
-├── main.go                           # 程序入口，CLI 路由和命令处理
-├── go.mod / go.sum                   # Go 模块依赖
-│
-├── config/                           # 配置管理包
-│   └── config.go                     # 配置加载、保存、路径解析
-│
-├── internal/                         # 内部包（不可被外部导入）
-│   ├── models/                       # 数据模型定义
-│   │   └── models.go                 # WorkEntry, DailyData, Config, TaskConfig 等
-│   │
-│   ├── scheduler/                    # 定时任务调度
-│   │   ├── scheduler.go              # 统一调度器（每分钟检查任务）
-│   │   ├── task.go                   # Task 接口定义
-│   │   ├── registry.go               # 任务注册表（文件持久化）
-│   │   ├── init.go                   # 任务初始化逻辑
-│   │   └── scheduler_test.go         # 单元测试
-│   │
-│   ├── tasks/                        # 具体任务实现
-│   │   ├── reminder.go               # 工作记录提醒任务
-│   │   ├── summary.go                # 每日总结生成任务
-│   │   ├── weekly_summary.go         # 每周总结生成任务
-│   │   └── log_rotate.go             # 日志轮转任务
-│   │
-│   ├── dialog/                       # 对话框接口和实现
-│   │   ├── dialog.go                 # Dialog 接口定义
-│   │   └── osascript.go              # macOS osascript 实现
-│   │
-│   ├── storage/                      # 数据存储
-│   │   ├── storage.go                # Storage 接口定义
-│   │   └── json_storage.go           # JSON 文件存储实现
-│   │
-│   ├── summary/                      # AI 总结生成
-│   │   ├── client.go                 # AIClient 接口定义
-│   │   ├── codex.go                  # Codex 客户端实现
-│   │   ├── coco.go                   # Coco 客户端实现
-│   │   ├── claude.go                 # Claude Code 客户端实现
-│   │   ├── generator.go              # 总结生成器（模板加载、流程编排）
-│   │   └── generator_test.go         # 单元测试
-│   │
-│   └── cli/                          # CLI 命令实现
-│       ├── cli.go                    # add, popup, list 命令，进程锁
-│       └── cli_test.go               # 单元测试
-│
-├── templates/                        # Prompt 模板
-│   ├── summary_prompt.md             # 每日总结 Prompt 模板
-│   └── weekly_summary_prompt.md      # 每周总结 Prompt 模板
-│
-├── scripts/                          # 安装和测试脚本
-│   ├── install.sh                    # 安装脚本（编译、配置、launchd）
-│   ├── uninstall.sh                  # 卸载脚本
-│   ├── quick_test.sh                 # 快速测试脚本
-│   ├── test_config.sh                # 配置测试
-│   ├── test_dialog.sh                # 对话框测试
-│   └── test_minute_interval.sh       # 分钟级调度测试
-│
-├── launchd/                          # macOS 后台服务
-│   └── com.humg.daily_summary.plist  # launchd 配置文件
-│
-├── docs/                             # 项目文档
-│   ├── QUICK_START.md                # 快速开始指南
-│   ├── CONFIGURATION.md              # 配置详解
-│   └── MINUTE_SCHEDULING.md          # 分钟级调度说明
-│
-├── run/                              # 运行时数据（.gitignore）
-│   ├── data/                         # 工作记录 JSON 文件
-│   │   ├── 2026-01-19.json
-│   │   └── 2026-01-20.json
-│   ├── summaries/                    # Markdown 总结文件
-│   │   ├── daily/                    # 每日总结
-│   │   │   ├── 2026-01-19.md
-│   │   │   └── 2026-01-20.md
-│   │   └── weekly/                   # 每周总结
-│   │       └── 2026-W04.md
-│   ├── logs/                         # 日志文件
-│   │   ├── app.log                   # 应用日志
-│   │   ├── app.log.old               # 轮转的旧日志
-│   │   ├── scheduler_check.log       # 调度器检查日志
-│   │   ├── stdout.log                # 标准输出（launchd）
-│   │   └── stderr.log                # 标准错误（launchd）
-│   ├── tasks.json                    # 任务注册表（持久化）
-│   └── daily_summary.lock            # 进程锁文件
-│
-├── config.yaml                       # 用户配置文件
-├── config.example.yaml               # 配置示例
-├── config.pomodoro.yaml              # 番茄钟配置示例
-│
-├── CLAUDE.md                         # 本文件：Claude Code 开发指南
-├── README.md                         # 项目说明文档
-└── CHANGELOG.md                      # 更新日志
-```
-
-### 配置文件
-
-配置文件支持 YAML 和 JSON 两种格式（根据扩展名自动识别）：
-- 默认路径：`~/.config/daily_summary/config.yaml` 或项目根目录 `config.yaml`
-- 示例文件：`config.example.yaml`
-
-**关键配置项：**
-
-**目录配置：**
-- `work_dir`：工作目录（项目根目录），相对路径会基于此目录解析
-- `data_dir`：工作记录存储目录（默认 `./run/data`）
-- `summary_dir`：总结文件存储目录（默认 `./run/summaries`）
-
-**提醒间隔：**
-- `hourly_interval`：小时级提醒间隔（默认 1，表示每小时提醒一次）
-- `minute_interval`：分钟级提醒间隔（如果设置则优先使用，覆盖 hourly_interval）
-  - 示例：30 表示每 30 分钟提醒一次
-  - 适用于番茄工作法等场景
-
-**总结生成：**
-- `summary_time`：每日生成总结的时间，格式 "HH:MM"（默认 "00:00"）
-- `ai_provider`：AI 提供商，可选 "codex"、"coco" 或 "claude"（默认 "codex"）
-- `codex_path`：Codex CLI 路径（默认 "codex"）
-- `coco_path`：Coco CLI 路径（默认 "coco"）
-- `claude_code_path`：Claude Code CLI 路径（默认 "claude-code"）
-
-**周总结配置（可选）：**
-- `enable_weekly_summary`：是否启用周总结（默认 false）
-- `weekly_summary_time`：每周生成总结的时间，格式 "HH:MM"（默认 "11:00"）
-- `weekly_summary_day`：每周生成总结的星期几（1=周一，7=周日，默认 1）
-
-**其他配置：**
-- `dialog_timeout`：对话框超时时间（秒，默认 300）
-- `enable_logging`：是否启用日志记录（默认 true）
-- `log_file`：日志文件路径（默认 `./run/logs/app.log`）
-- `max_log_size_mb`：日志文件最大大小（MB），超过后自动轮转（0 表示不限制）
-
-**说明**：
-- `summary_dir` 包含两个子目录：`daily/`（每日总结）和 `weekly/`（每周总结）
-- 周总结会自动聚合该周的所有每日总结
-
-配置文件会在程序启动时自动加载，如果不存在则使用默认配置。
-
-## CLI Usage
-
-程序支持以下命令：
-
-### 1. serve（默认命令）
-
-启动后台服务，运行定时提醒和总结生成任务。
-
-```bash
-daily_summary serve
-# 或直接运行
-daily_summary
-```
-
-**特性**：
-- 检查并获取进程锁，防止重复启动
-- 加载配置文件
-- 设置日志记录
-- 初始化所有组件（对话框、存储、AI 客户端、生成器、调度器）
-- 监听系统信号优雅退出（Ctrl+C）
-
-### 2. add - 手动添加工作记录
-
-立即添加一条工作记录，无需等待定时弹窗。
-
-```bash
-daily_summary add "完成需求文档审查"
-daily_summary add "修复登录页面的 bug"
-```
-
-**特性**：
-- 记录当前时间戳
-- 保存到当日 JSON 文件
-- 发送重置信号，自动顺延下次提醒时间
-- 打印确认信息
-
-### 3. list - 查看今日记录
-
-显示今天已记录的所有工作内容。
-
-```bash
-daily_summary list
-```
-
-**输出示例**：
-```
-📝 今日工作记录 (2026-01-20)：
-
-  • 09:30 - 完成需求文档审查
-  • 11:00 - 参加技术评审会议
-  • 14:00 - 修复登录页面的 bug
-
-共 3 条记录
-```
-
-### 4. popup - 显示输入对话框
-
-手动触发输入对话框，类似于定时提醒的弹窗。
-
-```bash
-daily_summary popup
-```
-
-**特性**：
-- 显示 macOS 原生输入对话框
-- 显示当日已有记录作为上下文
-- 用户输入后自动保存工作记录
-- 自动更新下次提醒时间
-
-### 5. summary - 手动生成每日总结
-
-手动触发指定日期的工作总结生成。
-
-```bash
-# 生成今天的总结
-daily_summary summary
-
-# 生成指定日期的总结
-daily_summary summary --date 2026-01-19
-```
-
-**特性**：
-- 支持 `--date` 参数指定日期（格式：YYYY-MM-DD）
-- 检查是否有工作记录
-- 从模板加载 Prompt
-- 调用 AI 生成总结
-- 保存 Markdown 文件到 `summary_dir/daily/`
-- 标记总结生成状态
-- 打印文件路径
-
-### 6. weekly - 手动生成每周总结
-
-手动触发指定周的工作总结生成。
-
-```bash
-# 生成本周的总结
-daily_summary weekly
-
-# 生成指定日期所在周的总结
-daily_summary weekly --date 2026-01-20
-```
-
-**特性**：
-- 支持 `--date` 参数（指定该周内任意日期）
-- 自动聚合该周的所有每日总结
-- 从 `templates/weekly_summary_prompt.md` 加载模板
-- 调用 AI 生成周总结
-- 保存到 `summary_dir/weekly/YYYY-Wnn.md`（ISO 周编号）
-
-### 7. help - 显示帮助信息
-
-```bash
-daily_summary help
-# 或
-daily_summary --help
-```
-
-### 全局选项
-
-**--config**：指定配置文件路径
-
-```bash
-daily_summary --config ~/my-config.yaml serve
-daily_summary --config ./custom.yaml add "完成测试"
-```
-
-## Deployment
-
-### macOS launchd 集成
-
-项目提供脚本实现 launchd 后台服务：
-
-**安装脚本**：`scripts/install.sh`
-- 编译二进制文件
-- 创建运行目录（run/data, run/summaries, run/logs）
-- 复制配置文件
-- 安装 launchd plist 文件
-- 启动服务
-
-**卸载脚本**：`scripts/uninstall.sh`
-- 停止并卸载 launchd 服务
-- 删除 plist 文件
-- 保留数据和配置
-
-**plist 配置**：`launchd/com.humg.daily_summary.plist`
-- WorkingDirectory：项目根目录
-- StandardOutPath：`run/logs/stdout.log`
-- StandardErrorPath：`run/logs/stderr.log`
-- RunAtLoad：系统启动时自动运行
-- KeepAlive：崩溃后自动重启 
+## Further Reading
+
+- `README.md` - 项目总体介绍
+- `docs/QUICK_START.md` - 快速开始指南
+- `docs/CONFIGURATION.md` - 配置详解
+- `docs/MINUTE_SCHEDULING.md` - 分钟级调度说明
+- `CHANGELOG.md` - 更新日志
+- `templates/*.md` - Prompt 模板示例
+
+## Index for Exploration
+
+当需要了解详细实现时，查看以下文件：
+
+**任务系统**：
+- `internal/scheduler/scheduler.go` - 调度器核心逻辑
+- `internal/scheduler/registry.go` - 任务注册表持久化
+- `internal/tasks/*.go` - 各任务的具体实现
+
+**AI 集成**：
+- `internal/summary/generator.go` - 总结生成流程
+- `internal/summary/codex.go` - Codex 客户端实现
+- `templates/summary_prompt.md` - Prompt 模板
+
+**数据存储**：
+- `internal/storage/json_storage.go` - JSON 存储实现
+- `run/data/*.json` - 实际数据文件示例
+- `run/tasks.json` - 任务注册表示例
+
+**命令行**：
+- `main.go` - CLI 路由和命令处理
+- `internal/cli/cli.go` - 命令实现和进程锁
+
+**配置**：
+- `config/config.go` - 配置加载和解析
+- `config.example.yaml` - 配置示例
